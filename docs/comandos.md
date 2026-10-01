@@ -236,3 +236,112 @@ docker exec kafka du -sh /var/lib/kafka/data
 
 A imagem `apache/kafka` traz só o JRE (sem `jcmd`/`jstat`), por isso a heap é observada pelo log de GC.
 Se o uso da heap encostar no `-Xmx` com pausas de GC frequentes, aumente o `KAFKA_HEAP_OPTS`.
+
+---
+
+## Diagnóstico — ver o conteúdo dos tópicos Kafka
+
+O Kafka não é uma tabela: cada tópico é um **log só de acréscimo**, dividido em partições, e
+cada mensagem tem uma posição fixa (**offset**). Não existe `SELECT ... WHERE`: "consultar" é
+ler o log a partir de uma posição. Ler **não apaga** a mensagem (diferente de SQS/RabbitMQ);
+ela fica até expirar a retenção (7 dias por padrão).
+
+| PostgreSQL | Kafka |
+| --- | --- |
+| tabela | tópico (dividido em partições) |
+| linha | mensagem (chave + valor + timestamp) |
+| `id` / posição | partição + offset |
+| `SELECT *` | consumer com `--from-beginning` |
+| `WHERE` | não existe: quem lê filtra |
+
+Quantas mensagens por partição (`tópico:partição:próximo-offset`, ou seja, o total na partição):
+
+```powershell
+docker exec kafka /opt/kafka/bin/kafka-get-offsets.sh --bootstrap-server localhost:9092 --topic conciliacao.arquivo-recebido
+```
+
+Ler tudo, com data, partição, offset e chave:
+
+```powershell
+docker exec kafka /opt/kafka/bin/kafka-console-consumer.sh --bootstrap-server localhost:9092 --topic conciliacao.arquivo-recebido --from-beginning --timeout-ms 6000 --formatter-property print.timestamp=true --formatter-property print.partition=true --formatter-property print.offset=true --formatter-property print.key=true
+```
+
+Ler uma mensagem exata (partição 1, offset 0):
+
+```powershell
+docker exec kafka /opt/kafka/bin/kafka-console-consumer.sh --bootstrap-server localhost:9092 --topic conciliacao.arquivo-recebido --partition 1 --offset 0 --max-messages 1
+```
+
+"Filtrar" no lado de quem lê (`Select-String` é o grep do PowerShell):
+
+```powershell
+docker exec kafka /opt/kafka/bin/kafka-console-consumer.sh --bootstrap-server localhost:9092 --topic conciliacao.arquivo-recebido --from-beginning --timeout-ms 6000 | Select-String "20261004"
+```
+
+Consumer groups (quem consome e quanto falta ler, o *lag*):
+
+```powershell
+docker exec kafka /opt/kafka/bin/kafka-consumer-groups.sh --bootstrap-server localhost:9092 --list
+docker exec kafka /opt/kafka/bin/kafka-consumer-groups.sh --bootstrap-server localhost:9092 --describe --all-groups
+```
+
+Ruídos esperados: o aviso sobre `KIP-848` e o `TimeoutException` ao final (é o `--timeout-ms` encerrando a leitura).
+
+---
+
+## Diagnóstico — validar a idempotência (PostgreSQL)
+
+A identidade do arquivo é **nome + ETag** (o ETag é o hash do conteúdo calculado pelo S3).
+A garantia vem da constraint `UNIQUE (nome_arquivo, etag)` combinada com
+`INSERT ... ON CONFLICT DO NOTHING RETURNING id` (ver ADR 0003). Equivalências com a
+alternativa DynamoDB que foi descartada:
+
+| DynamoDB (descartado) | PostgreSQL (adotado) |
+| --- | --- |
+| chave da tabela `nome#etag` | `UNIQUE (nome_arquivo, etag)` |
+| `PutItem` com `attribute_not_exists` | `INSERT ... ON CONFLICT DO NOTHING` |
+| `ConditionalCheckFailedException` = duplicado | `RETURNING` sem linha = duplicado |
+
+### A) A regra existe no banco
+
+```powershell
+docker exec postgres psql -U conciliacao -d conciliacao -c "select conname, pg_get_constraintdef(oid) from pg_constraint where conrelid='arquivo_recebido'::regclass and contype='u'"
+```
+
+Esperado: `uk_arquivo_recebido_nome_etag | UNIQUE (nome_arquivo, etag)`.
+
+### B) O mecanismo direto no SQL
+
+Rode o mesmo `INSERT` duas vezes: a primeira devolve o `id` (`INSERT 0 1`), a segunda não
+devolve linha (`INSERT 0 0`). É exatamente o que a Lambda faz.
+
+```powershell
+1..2 | % { docker exec postgres psql -U conciliacao -d conciliacao -c "insert into arquivo_recebido (bucket, chave, nome_arquivo, etag, tamanho_bytes, data_referencia) values ('conciliacao','entrada/teste_sql.csv','teste_sql.csv','etag-manual',1,'2026-10-01') on conflict (nome_arquivo, etag) do nothing returning id" }
+docker exec postgres psql -U conciliacao -d conciliacao -c "delete from arquivo_recebido where nome_arquivo='teste_sql.csv'"   # limpa o teste
+```
+
+### C) Pela Lambda: mesmo arquivo de novo → ignorado
+
+```powershell
+docker exec localstack awslocal s3 cp /exemplos/conciliacao_20261001.csv s3://conciliacao/entrada/
+docker exec postgres psql -U conciliacao -d conciliacao -c "select nome_arquivo, etag, recebido_em from arquivo_recebido where nome_arquivo='conciliacao_20261001.csv'"
+```
+
+O número de linhas não muda, o log da Lambda mostra `Duplicado` e o `kafka-get-offsets.sh` continua com o mesmo total.
+
+### D) Pela Lambda: mesmo nome, conteúdo diferente → aceito
+
+Simula a adquirente reenviando o arquivo corrigido: ETag novo, arquivo novo.
+
+```powershell
+(Get-Content infra\exemplos\conciliacao_20261001.csv -Raw) -replace '150.90','151.90' | docker exec -i localstack awslocal s3 cp - s3://conciliacao/entrada/conciliacao_20261001.csv
+```
+
+Após alguns segundos (até ~15 s se a Lambda estiver fria), a consulta do item C mostra **duas**
+linhas com ETags diferentes, e o tópico ganha um evento.
+
+### E) Falha na publicação não "queima" o arquivo
+
+É o cenário 4 da etapa 2 (Kafka fora do ar): o registro é desfeito e a retentativa da Lambda
+publica quando o Kafka volta. Sem esse rollback, a retentativa veria o arquivo como duplicado
+e ele nunca seria processado.
