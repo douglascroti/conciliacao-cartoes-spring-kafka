@@ -1,0 +1,55 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <!--
+        O spring-boot-starter-parent traz versões alinhadas de centenas de bibliotecas
+        (Kafka, Jackson, JDBC, testes...) e a configuração padrão dos plugins.
+        Spring Boot 4.0.x porque é a linha suportada pelo Spring Cloud 2025.1 (ver ADR 0001).
+    -->
+    <parent>
+        <groupId>org.springframework.boot</groupId>
+        <artifactId>spring-boot-starter-parent</artifactId>
+        <version>4.0.8</version>
+        <relativePath/>
+    </parent>
+
+    <groupId>br.estudo.conciliacao</groupId>
+    <artifactId>conciliacao-parent</artifactId>
+    <version>0.1.0-SNAPSHOT</version>
+    <packaging>pom</packaging>
+    <name>Conciliação de Cartões</name>
+
+    <modules>
+        <module>conciliacao-eventos</module>
+        <module>conciliacao-lambda</module>
+        <module>conciliacao-batch</module>
+    </modules>
+
+    <properties>
+        <java.version>21</java.version>
+        <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+        <spring-cloud.version>2025.1.3</spring-cloud.version>
+    </properties>
+
+    <dependencyManagement>
+        <dependencies>
+            <!-- BOM do Spring Cloud: fixa a versão do Spring Cloud Function (adaptador AWS da Lambda). -->
+            <dependency>
+                <groupId>org.springframework.cloud</groupId>
+                <artifactId>spring-cloud-dependencies</artifactId>
+                <version>${spring-cloud.version}</version>
+                <type>pom</type>
+                <scope>import</scope>
+            </dependency>
+            <!-- Módulo interno: os outros módulos dependem dele sem repetir a versão. -->
+            <dependency>
+                <groupId>br.estudo.conciliacao</groupId>
+                <artifactId>conciliacao-eventos</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+        </dependencies>
+    </dependencyManagement>
+</project>

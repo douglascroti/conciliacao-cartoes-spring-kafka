@@ -1,0 +1,7 @@
+# Normaliza finais de linha. Scripts que rodam em Linux (containers) precisam de LF,
+# senão falham com "/bin/bash^M: bad interpreter".
+* text=auto
+*.sh text eol=lf
+mvnw text eol=lf
+*.cmd text eol=crlf
+*.jar binary
