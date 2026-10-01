@@ -16,16 +16,24 @@ services:
       # Os containers que o LocalStack cria para executar a Lambda entram nesta rede,
       # e assim conseguem falar com o Kafka pelo nome "kafka:9092".
       LAMBDA_DOCKER_NETWORK: conciliacao-net
+      # Lidas pelo script de deploy para configurar a conexão da Lambda com o Postgres.
+      POSTGRES_DB: ${POSTGRES_DB:-conciliacao}
+      POSTGRES_USER: ${POSTGRES_USER:-conciliacao}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-conciliacao}
     volumes:
       # Necessário para o LocalStack criar os containers da Lambda.
       - /var/run/docker.sock:/var/run/docker.sock
-      # Scripts executados quando o LocalStack fica pronto (criação do bucket).
+      # Scripts executados quando o LocalStack fica pronto (bucket, deploy da Lambda).
       - ./infra/localstack/init:/etc/localstack/init/ready.d:ro
+      # JAR da Lambda gerado pelo Maven (deploy feito pelo script 02-deploy-lambda.sh).
+      - ./conciliacao-lambda/target:/opt/lambda:ro
+      # Arquivos de exemplo para upload com awslocal.
+      - ./infra/exemplos:/exemplos:ro
     healthcheck:
       test: ["CMD-SHELL", "curl -sf localhost:4566/_localstack/init/ready | grep -q '\"completed\": true'"]
       interval: 5s
       timeout: 5s
-      retries: 30
+      retries: 60
     networks:
       - conciliacao-net
 
@@ -101,6 +109,26 @@ services:
       interval: 5s
       timeout: 5s
       retries: 20
+    networks:
+      - conciliacao-net
+
+  # Container de execução única: aplica as migrations SQL (infra/postgres/migrations) e termina.
+  flyway:
+    image: flyway/flyway:13.9.0-alpine
+    container_name: flyway
+    depends_on:
+      postgres:
+        condition: service_healthy
+    command:
+      - -url=jdbc:postgresql://postgres:5432/${POSTGRES_DB:-conciliacao}
+      - -user=${POSTGRES_USER:-conciliacao}
+      - -password=${POSTGRES_PASSWORD:-conciliacao}
+      - -locations=filesystem:/flyway/sql
+      - -connectRetries=10
+      - migrate
+    volumes:
+      - ./infra/postgres/migrations:/flyway/sql:ro
+    restart: "no"
     networks:
       - conciliacao-net
 

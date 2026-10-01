@@ -1,0 +1,23 @@
+spring:
+  main:
+    banner-mode: off
+
+conciliacao:
+  kafka:
+    # Dentro da rede Docker: kafka:9092 (definido no deploy). Rodando no host: localhost:9094.
+    bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:localhost:9094}
+    topico: conciliacao.arquivo-recebido
+  banco:
+    url: ${DB_URL:jdbc:postgresql://localhost:5432/conciliacao}
+    usuario: ${DB_USER:conciliacao}
+    senha: ${DB_PASSWORD:conciliacao}
+  s3:
+    prefixo-entrada: entrada/
+    prefixo-rejeitados: rejeitados/
+    # O LocalStack é acessado por IP/hostname sem DNS curinga para buckets; na AWS real, false.
+    force-path-style: ${S3_FORCE_PATH_STYLE:false}
+
+logging:
+  level:
+    root: WARN
+    br.estudo.conciliacao: INFO

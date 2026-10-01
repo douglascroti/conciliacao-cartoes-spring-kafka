@@ -92,7 +92,8 @@ As decisões relevantes estão registradas como **ADRs (Architecture Decision Re
 - **Lambda como gatilho, não como processador:** evita o limite de 15 minutos e mantém a função simples e barata.
 - **Spring Batch para alta volumetria:** processamento em chunks, restart a partir do ponto de falha via `JobRepository`, skip de linhas inválidas e tamanho de chunk configurável.
 - **Kafka para desacoplamento:** múltiplos consumidores podem reagir ao resultado da conciliação (agenda de recebíveis, relatórios, antifraude) sem acoplamento ao job.
-- **Idempotência na entrada:** o mesmo arquivo reenviado, ou o mesmo evento do S3 entregue duas vezes, não gera reprocessamento.
+- **Idempotência na entrada:** o mesmo arquivo reenviado, ou o mesmo evento do S3 entregue duas vezes, não gera reprocessamento (nome + ETag com `UNIQUE` no PostgreSQL).
+- **Arquivos inválidos não se perdem:** nome ou cabeçalho fora do layout movem o arquivo para `rejeitados/`, com o motivo em metadado.
 - **Cold start da Lambda em Java:** custo conhecido da JVM + Spring, mitigado na AWS real com **SnapStart**.
 
 ---
@@ -110,7 +111,8 @@ As decisões relevantes estão registradas como **ADRs (Architecture Decision Re
 ├── conciliacao-lambda/            # Lambda: valida o arquivo e publica no Kafka
 ├── conciliacao-batch/             # Consumer Kafka + job Spring Batch
 ├── gerador-dados/                 # Gera CSVs de teste e massa de transações autorizadas (fase 4)
-├── infra/                         # Scripts de init (bucket S3, tópicos Kafka)
+├── infra/                         # Scripts de init (bucket, Lambda, tópicos), migrations e exemplos
+├── scripts/                       # Utilitários (deploy da Lambda)
 └── docs/
     ├── adr/                       # decisões de arquitetura
     └── prompts/                   # prompts usados em cada fase do desenvolvimento
@@ -136,11 +138,22 @@ cp .env.example .env
 # edite o .env e informe seu LOCALSTACK_AUTH_TOKEN
 ```
 
-### 2. Subir a infraestrutura
+### 2. Build
+
+```bash
+./mvnw clean package          # Windows: .\mvnw.cmd clean package
+```
+
+Gera, entre outros, o JAR da Lambda (`conciliacao-lambda/target/conciliacao-lambda-*-aws.jar`).
+
+### 3. Subir a infraestrutura
 
 ```bash
 docker compose up -d --wait   # retorna quando todos os serviços estão saudáveis
 ```
+
+Ao subir, o Flyway aplica as migrations no PostgreSQL, o `kafka-init` cria os tópicos e o
+LocalStack cria o bucket, publica a Lambda e liga a notificação do S3 a ela.
 
 | Serviço | Porta |
 | --- | --- |
@@ -149,21 +162,29 @@ docker compose up -d --wait   # retorna quando todos os serviços estão saudáv
 | Kafka (aplicações no host) | `localhost:9094` |
 | PostgreSQL | 5432 |
 
-### 3. Build e deploy da Lambda
+Depois de alterar o código da Lambda, republique com:
 
-```bash
-./mvnw clean package          # Windows: .\mvnw.cmd clean package
-# o script de deploy na LocalStack será adicionado na fase 2 do roadmap
+```powershell
+.\scripts\deploy-lambda.ps1
 ```
 
-### 4. Gerar massa de dados e enviar um arquivo
+### 4. Enviar um arquivo
 
 ```bash
-# gera o CSV de conciliação e popula as transações autorizadas
-# (instruções detalhadas na fase 4 do roadmap)
-
-aws --endpoint-url=http://localhost:4566 s3 cp conciliacao_20261001.csv s3://conciliacao/entrada/
+docker exec localstack awslocal s3 cp /exemplos/conciliacao_20261001.csv s3://conciliacao/entrada/
 ```
+
+`/exemplos` é a pasta `infra/exemplos` montada no LocalStack; `awslocal` é a AWS CLI já
+apontada para o LocalStack. A geração de massa de dados chega na fase 4.
+
+Ver o evento publicado pela Lambda:
+
+```bash
+docker exec kafka /opt/kafka/bin/kafka-console-consumer.sh --bootstrap-server localhost:9092 \
+  --topic conciliacao.arquivo-recebido --from-beginning
+```
+
+Todos os comandos de validação, por etapa, estão em [`docs/comandos.md`](docs/comandos.md).
 
 ### 5. Acompanhar o resultado
 
@@ -211,7 +232,7 @@ Mesmo sendo um ambiente de estudo, o projeto segue práticas exigidas em sistema
 ## 🗺 Roadmap
 
 - [x] **Fase 1:** estrutura Maven multi-módulo e infraestrutura com Docker Compose
-- [ ] **Fase 2:** Lambda Java publicando no Kafka a partir do upload no S3
+- [x] **Fase 2:** Lambda Java publicando no Kafka a partir do upload no S3
 - [ ] **Fase 3:** consumer Kafka e job Spring Batch de conciliação
 - [ ] **Fase 4:** gerador de massa de dados e teste com 1 milhão de linhas
 - [ ] **Fase 5:** documentação e ADRs
