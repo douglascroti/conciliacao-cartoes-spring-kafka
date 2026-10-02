@@ -343,6 +343,35 @@ No log: `Evento duplicado: arquivo ... já foi processado`.
 
 Uma linha `ERROR` do `DefaultErrorHandler` (`maxAttempts=0`, sem retentativa) e o serviço segue `UP`.
 
+### Cenário 4 — conciliação com todos os status (3b)
+
+Carregar as autorizações de teste (uma por status) e liberar o arquivo de exemplo, caso ele já
+tenha sido recebido antes:
+
+```powershell
+docker compose run --rm flyway                       # V3: transacao_autorizada e resultado_conciliacao
+Get-Content infra\exemplos\transacoes_autorizadas_20261001.sql | docker exec -i postgres psql -U conciliacao -d conciliacao
+docker exec postgres psql -U conciliacao -d conciliacao -c "delete from arquivo_recebido where nome_arquivo='conciliacao_20261001.csv'"
+docker exec localstack awslocal s3 cp /exemplos/conciliacao_20261001.csv s3://conciliacao/entrada/
+```
+
+No log: `Resumo do arquivo conciliacao_20261001.csv: {AUSENTE_NO_ARQUIVO=1, CONCILIADA=1, DIVERGENTE=2, NAO_ENCONTRADA=1}`.
+
+Resultados no banco:
+
+```powershell
+docker exec postgres psql -U conciliacao -d conciliacao -c "select r.numero_linha linha, r.nsu, r.status, r.campos_divergentes, r.valor_arquivo, r.valor_autorizado from resultado_conciliacao r join arquivo_recebido a on a.id = r.id_arquivo where a.nome_arquivo='conciliacao_20261001.csv' order by r.numero_linha nulls last"
+```
+
+Resultados no Kafka (chave = id do arquivo, todos na mesma partição):
+
+```powershell
+docker exec kafka /opt/kafka/bin/kafka-console-consumer.sh --bootstrap-server localhost:9092 --topic conciliacao.resultado --from-beginning --formatter-property print.key=true --formatter-property print.partition=true --timeout-ms 6000
+```
+
+> No Windows, pare o serviço antes de recompilar: o `java -jar` mantém o JAR aberto e o
+> `package` falha com `Unable to rename ... .jar.original`.
+
 ### JobRepository: execuções, steps e parâmetros
 
 ```powershell

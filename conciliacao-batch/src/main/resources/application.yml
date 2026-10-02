@@ -5,7 +5,9 @@ spring:
     banner-mode: off
 
   datasource:
-    url: ${DB_URL:jdbc:postgresql://localhost:5432/conciliacao}
+    # reWriteBatchedInserts: o driver reescreve um batch de N INSERTs em poucos INSERTs com vários
+    # VALUES, o que reduz muito as idas ao banco ao gravar os resultados de cada chunk.
+    url: ${DB_URL:jdbc:postgresql://localhost:5432/conciliacao?reWriteBatchedInserts=true}
     username: ${DB_USER:conciliacao}
     password: ${DB_PASSWORD:conciliacao}
     hikari:
@@ -29,6 +31,15 @@ spring:
       auto-offset-reset: earliest
       key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
       value-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+    producer:
+      key-serializer: org.apache.kafka.common.serialization.StringSerializer
+      value-serializer: org.apache.kafka.common.serialization.StringSerializer
+      # Só considera enviado quando todas as réplicas em sincronia confirmaram (idempotência já é o padrão).
+      acks: all
+      properties:
+        # Espera até 10 ms para juntar mais mensagens no mesmo envio: os resultados de um chunk
+        # saem em poucas requisições em vez de uma por mensagem.
+        linger.ms: 10
 
 conciliacao:
   s3:

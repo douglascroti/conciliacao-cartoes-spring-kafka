@@ -203,10 +203,10 @@ docker compose exec kafka /opt/kafka/bin/kafka-console-consumer.sh \
 | Tópico | Produtor | Conteúdo |
 | --- | --- | --- |
 | `conciliacao.arquivo-recebido` | Lambda | Bucket, chave, ETag, tamanho e data de recebimento do arquivo |
-| `conciliacao.resultado` | Job Spring Batch | Resultado por transação: `CONCILIADA`, `DIVERGENTE` ou `NAO_ENCONTRADA` |
+| `conciliacao.resultado` | Job Spring Batch | Resultado por transação: `CONCILIADA`, `DIVERGENTE`, `NAO_ENCONTRADA` ou `AUSENTE_NO_ARQUIVO` (autorização sem linha no arquivo), sem PAN |
 | `conciliacao.erro` | Job Spring Batch | Linhas inválidas, com número da linha e motivo |
 
-Os eventos de resultado usam o identificador da transação como **chave**, garantindo ordenação por transação dentro da partição.
+Os eventos de resultado usam o **id do arquivo** como chave: os resultados de um arquivo ficam na mesma partição, em ordem. A entrega é *pelo menos uma vez*; consumidores usam `idArquivo + nsu + codigoAutorizacao` para descartar repetições.
 
 ---
 

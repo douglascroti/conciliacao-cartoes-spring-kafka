@@ -12,7 +12,7 @@ import java.time.LocalDateTime;
  * @param numeroLinha número da linha no arquivo (o cabeçalho é a linha 1), usado nos erros
  */
 public record LinhaArquivo(
-        long numeroLinha,
+        int numeroLinha,
         String nsu,
         String codigoAutorizacao,
         LocalDateTime dataTransacao,
