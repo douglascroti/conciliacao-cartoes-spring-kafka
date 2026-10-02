@@ -16,7 +16,7 @@ import br.estudo.conciliacao.batch.conciliacao.ResultadoConciliacao;
 import br.estudo.conciliacao.batch.conciliacao.TransacaoAutorizada;
 import br.estudo.conciliacao.batch.leitura.LinhaArquivo;
 import br.estudo.conciliacao.batch.persistencia.RepositorioConciliacao;
-import br.estudo.conciliacao.batch.publicacao.PublicadorResultados;
+import br.estudo.conciliacao.batch.publicacao.PublicadorConciliacao;
 
 /**
  * Concilia um chunk inteiro de uma vez.
@@ -31,12 +31,12 @@ import br.estudo.conciliacao.batch.publicacao.PublicadorResultados;
 public class ConciliacaoLinhasWriter implements ItemWriter<LinhaArquivo> {
 
     private final RepositorioConciliacao repositorio;
-    private final PublicadorResultados publicador;
+    private final PublicadorConciliacao publicador;
     private final Conciliador conciliador;
     private final UUID idArquivo;
     private final LocalDate dataReferencia;
 
-    public ConciliacaoLinhasWriter(RepositorioConciliacao repositorio, PublicadorResultados publicador,
+    public ConciliacaoLinhasWriter(RepositorioConciliacao repositorio, PublicadorConciliacao publicador,
                                    Conciliador conciliador, UUID idArquivo, LocalDate dataReferencia) {
         this.repositorio = repositorio;
         this.publicador = publicador;
@@ -54,6 +54,6 @@ public class ConciliacaoLinhasWriter implements ItemWriter<LinhaArquivo> {
         List<ResultadoConciliacao> resultados = conciliador.conciliar(linhas, autorizacoes);
 
         repositorio.inserirResultados(idArquivo, resultados);
-        publicador.publicar(idArquivo, dataReferencia, resultados);
+        publicador.publicarResultados(idArquivo, dataReferencia, resultados);
     }
 }

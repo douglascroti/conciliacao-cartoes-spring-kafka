@@ -28,7 +28,7 @@ public class LinhaArquivoLineMapper implements LineMapper<LinhaArquivo> {
     @Override
     public LinhaArquivo mapLine(String linha, int numeroLinha) {
         FieldSet campos = tokenizer.tokenize(linha);
-        return new LinhaArquivo(
+        LinhaArquivo item = new LinhaArquivo(
                 numeroLinha,
                 campos.readString("nsu"),
                 campos.readString("codigo_autorizacao"),
@@ -37,5 +37,23 @@ public class LinhaArquivoLineMapper implements LineMapper<LinhaArquivo> {
                 campos.readString("pan_mascarado"),
                 campos.readString("mcc"),
                 campos.readInt("parcelas"));
+        validar(item);
+        return item;
+    }
+
+    // Regras além do formato: o tipo está certo, mas o conteúdo não faz sentido para uma venda.
+    private static void validar(LinhaArquivo item) {
+        if (item.nsu().isBlank()) {
+            throw new LinhaInvalidaException("nsu vazio");
+        }
+        if (item.codigoAutorizacao().isBlank()) {
+            throw new LinhaInvalidaException("codigo_autorizacao vazio");
+        }
+        if (item.valor() == null || item.valor().signum() <= 0) {
+            throw new LinhaInvalidaException("valor deve ser maior que zero");
+        }
+        if (item.parcelas() < 1) {
+            throw new LinhaInvalidaException("parcelas deve ser no mínimo 1");
+        }
     }
 }

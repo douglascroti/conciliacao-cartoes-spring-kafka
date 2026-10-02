@@ -16,9 +16,10 @@ public record ConciliacaoProperties(S3 s3, Job job) {
     }
 
     /**
-     * @param tamanhoChunk         linhas lidas, processadas e gravadas por transação
-     * @param execucoesSimultaneas quantos arquivos são processados ao mesmo tempo
+     * @param tamanhoChunk          linhas lidas, processadas e gravadas por transação
+     * @param execucoesSimultaneas  quantos arquivos são processados ao mesmo tempo
+     * @param limiteLinhasInvalidas acima disso o arquivo é considerado corrompido e o job falha
      */
-    public record Job(int tamanhoChunk, int execucoesSimultaneas) {
+    public record Job(int tamanhoChunk, int execucoesSimultaneas, int limiteLinhasInvalidas) {
     }
 }

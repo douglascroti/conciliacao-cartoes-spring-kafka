@@ -26,6 +26,8 @@ import tools.jackson.databind.json.JsonMapper;
 @Component
 public class ArquivoRecebidoListener {
 
+    public static final String ID_LISTENER = "arquivoRecebido";
+
     private static final Logger log = LoggerFactory.getLogger(ArquivoRecebidoListener.class);
 
     private final JobOperator jobOperator;
@@ -38,7 +40,11 @@ public class ArquivoRecebidoListener {
         this.json = json;
     }
 
-    @KafkaListener(topics = Topicos.ARQUIVO_RECEBIDO)
+    // autoStartup = false: só começa a consumir depois da recuperação das execuções interrompidas
+    // (RecuperacaoExecucoes), para não confundir um job recém-lançado com um que ficou travado.
+    // idIsGroup = false: sem isso o id viraria o group.id e o consumer mudaria de grupo
+    // (com earliest, reprocessaria o tópico inteiro). O grupo continua o do application.yml.
+    @KafkaListener(id = ID_LISTENER, idIsGroup = false, topics = Topicos.ARQUIVO_RECEBIDO, autoStartup = "false")
     public void receber(String mensagem) throws Exception {
         ArquivoRecebidoEvento evento = json.readValue(mensagem, ArquivoRecebidoEvento.class);
         try {
@@ -65,6 +71,10 @@ public class ArquivoRecebidoListener {
                 .addString("chave", evento.chave(), false)
                 .addString("nomeArquivo", evento.nomeArquivo(), false)
                 .addLocalDate("dataReferencia", evento.dataReferencia(), false)
+                // Para o job criar o registro do arquivo quando a Lambda usou DynamoDB (StatusArquivoJobListener).
+                .addString("etag", evento.etag(), false)
+                .addLong("tamanhoBytes", evento.tamanhoBytes(), false)
+                .addString("recebidoEm", evento.recebidoEm().toString(), false)
                 .toJobParameters();
     }
 }

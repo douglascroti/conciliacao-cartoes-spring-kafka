@@ -372,6 +372,79 @@ docker exec kafka /opt/kafka/bin/kafka-console-consumer.sh --bootstrap-server lo
 > No Windows, pare o serviço antes de recompilar: o `java -jar` mantém o JAR aberto e o
 > `package` falha com `Unable to rename ... .jar.original`.
 
+### Cenário 5 — linhas inválidas são puladas (3c)
+
+`infra/exemplos/conciliacao_20261003.csv` tem 3 linhas válidas e 4 inválidas (mês 13, valor
+negativo, campos faltando, parcelas em texto):
+
+```powershell
+docker compose run --rm flyway                       # V4: colunas de acompanhamento em arquivo_recebido
+docker exec localstack awslocal s3 cp /exemplos/conciliacao_20261003.csv s3://conciliacao/entrada/
+```
+
+No log: um `Linha N ... inválida, pulada: <motivo>` por linha e o job `COMPLETED`. As linhas
+inválidas vão para `conciliacao.erro` (número da linha e motivo, nunca o conteúdo da linha):
+
+```powershell
+docker exec kafka /opt/kafka/bin/kafka-console-consumer.sh --bootstrap-server localhost:9092 --topic conciliacao.erro --from-beginning --timeout-ms 5000
+```
+
+Acima de `JOB_LIMITE_LINHAS_INVALIDAS` (padrão 1000) o arquivo é tratado como corrompido e o job falha.
+
+### Status do arquivo
+
+```powershell
+docker exec postgres psql -U conciliacao -d conciliacao -c "select nome_arquivo, status, linhas_processadas, linhas_invalidas, iniciado_em, finalizado_em, left(mensagem_erro, 120) erro from arquivo_recebido order by recebido_em desc limit 10"
+```
+
+`RECEBIDO` (Lambda) → `PROCESSANDO` → `CONCLUIDO` ou `FALHA`. Com `IDEMPOTENCIA_PROVEDOR=dynamodb`
+a linha é criada pelo job.
+
+### Arquivo grande para testar falhas
+
+Para ter tempo de provocar uma falha no meio, gere 20.000 linhas e rode o serviço com chunk de 100
+(`$env:JOB_TAMANHO_CHUNK='100'` antes do `java -jar`):
+
+```powershell
+$linhas = 1..20000 | ForEach-Object { '{0:D9};C{1:D5};2026-10-04T{2:D2}:{3:D2}:{4:D2};{5}.{6:D2};411111******1111;5411;{7}' -f (400000000 + $_), $_, ([int][math]::Floor($_ / 3600) % 24), ([int][math]::Floor($_ / 60) % 60), ($_ % 60), (10 + $_ % 500), ($_ % 100), (1 + $_ % 12) }
+@('nsu;codigo_autorizacao;data_transacao;valor;pan_mascarado;mcc;parcelas') + $linhas | docker exec -i localstack awslocal s3 cp - s3://conciliacao/entrada/conciliacao_20261004.csv
+```
+
+### Cenário 6 — Kafka fora do ar no meio do job e restart manual
+
+Logo depois do `Job iniciado` no log:
+
+```powershell
+docker stop kafka
+```
+
+Em ~30 s: `Job finalizado ... FAILED`, com menos linhas gravadas que lidas (o chunk em andamento
+foi desfeito) e o arquivo em `FALHA`. Depois:
+
+```powershell
+docker start kafka
+curl.exe -s -X POST localhost:8081/execucoes/<id-da-execução>/reiniciar     # id no log ou em batch_job_execution
+```
+
+A nova execução continua da linha seguinte ao último chunk confirmado. Conferir que não há
+duplicatas (`resultados` = `linhas_distintas` = total de linhas):
+
+```powershell
+docker exec postgres psql -U conciliacao -d conciliacao -c "select a.status, (select count(*) from resultado_conciliacao r where r.id_arquivo=a.id) resultados, (select count(distinct numero_linha) from resultado_conciliacao r where r.id_arquivo=a.id) linhas_distintas from arquivo_recebido a where nome_arquivo='conciliacao_20261004.csv' and status <> 'RECEBIDO'"
+```
+
+### Cenário 7 — queda do serviço no meio do job e recuperação automática
+
+Logo depois do `Job iniciado`, mate o processo (simula falta de memória ou queda da máquina):
+
+```powershell
+Get-CimInstance Win32_Process -Filter "Name='java.exe'" | Where-Object { $_.CommandLine -like '*conciliacao-batch*' } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force }
+```
+
+A execução fica `STARTED` em `batch_job_execution` e o arquivo em `PROCESSANDO`. Ao subir o serviço
+de novo, o log mostra `Execução N ... estava interrompida; reiniciada como execução M` **antes** de
+`Consumo de arquivoRecebido iniciado`, e o job termina do ponto em que parou.
+
 ### JobRepository: execuções, steps e parâmetros
 
 ```powershell

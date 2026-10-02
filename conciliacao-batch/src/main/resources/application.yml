@@ -49,6 +49,7 @@ conciliacao:
   job:
     tamanho-chunk: ${JOB_TAMANHO_CHUNK:1000}
     execucoes-simultaneas: ${JOB_EXECUCOES_SIMULTANEAS:2}
+    limite-linhas-invalidas: ${JOB_LIMITE_LINHAS_INVALIDAS:1000}
 
 server:
   # 8080 fica para o Kafka UI (3d).

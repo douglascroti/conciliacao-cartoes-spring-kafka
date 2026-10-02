@@ -11,18 +11,18 @@ import br.estudo.conciliacao.batch.conciliacao.Conciliador;
 import br.estudo.conciliacao.batch.conciliacao.ResultadoConciliacao;
 import br.estudo.conciliacao.batch.conciliacao.TransacaoAutorizada;
 import br.estudo.conciliacao.batch.persistencia.RepositorioConciliacao;
-import br.estudo.conciliacao.batch.publicacao.PublicadorResultados;
+import br.estudo.conciliacao.batch.publicacao.PublicadorConciliacao;
 
 /** Grava e publica como {@code AUSENTE_NO_ARQUIVO} as autorizações do dia que não vieram no arquivo. */
 public class AusentesWriter implements ItemWriter<TransacaoAutorizada> {
 
     private final RepositorioConciliacao repositorio;
-    private final PublicadorResultados publicador;
+    private final PublicadorConciliacao publicador;
     private final Conciliador conciliador;
     private final UUID idArquivo;
     private final LocalDate dataReferencia;
 
-    public AusentesWriter(RepositorioConciliacao repositorio, PublicadorResultados publicador,
+    public AusentesWriter(RepositorioConciliacao repositorio, PublicadorConciliacao publicador,
                           Conciliador conciliador, UUID idArquivo, LocalDate dataReferencia) {
         this.repositorio = repositorio;
         this.publicador = publicador;
@@ -35,6 +35,6 @@ public class AusentesWriter implements ItemWriter<TransacaoAutorizada> {
     public void write(Chunk<? extends TransacaoAutorizada> chunk) {
         List<ResultadoConciliacao> resultados = chunk.getItems().stream().map(conciliador::ausente).toList();
         repositorio.inserirResultados(idArquivo, resultados);
-        publicador.publicar(idArquivo, dataReferencia, resultados);
+        publicador.publicarResultados(idArquivo, dataReferencia, resultados);
     }
 }

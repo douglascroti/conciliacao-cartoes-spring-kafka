@@ -14,6 +14,7 @@ import org.springframework.batch.core.step.builder.StepBuilder;
 import org.springframework.batch.infrastructure.item.database.JdbcCursorItemReader;
 import org.springframework.batch.infrastructure.item.database.builder.JdbcCursorItemReaderBuilder;
 import org.springframework.batch.infrastructure.item.file.FlatFileItemReader;
+import org.springframework.batch.infrastructure.item.file.FlatFileParseException;
 import org.springframework.batch.infrastructure.item.file.builder.FlatFileItemReaderBuilder;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
@@ -24,12 +25,15 @@ import br.estudo.conciliacao.batch.conciliacao.Conciliador;
 import br.estudo.conciliacao.batch.conciliacao.TransacaoAutorizada;
 import br.estudo.conciliacao.batch.job.AusentesWriter;
 import br.estudo.conciliacao.batch.job.ConciliacaoLinhasWriter;
+import br.estudo.conciliacao.batch.job.LinhaInvalidaSkipListener;
 import br.estudo.conciliacao.batch.job.LogExecucaoJobListener;
+import br.estudo.conciliacao.batch.job.StatusArquivoJobListener;
 import br.estudo.conciliacao.batch.leitura.LinhaArquivo;
 import br.estudo.conciliacao.batch.leitura.LinhaArquivoLineMapper;
 import br.estudo.conciliacao.batch.leitura.ObjetoS3Resource;
+import br.estudo.conciliacao.batch.persistencia.RepositorioArquivo;
 import br.estudo.conciliacao.batch.persistencia.RepositorioConciliacao;
-import br.estudo.conciliacao.batch.publicacao.PublicadorResultados;
+import br.estudo.conciliacao.batch.publicacao.PublicadorConciliacao;
 import software.amazon.awssdk.services.s3.S3Client;
 
 /**
@@ -62,8 +66,9 @@ public class JobConciliacaoConfig {
 
     @Bean
     Job conciliacaoArquivo(JobRepository jobRepository, Step conciliarLinhas, Step registrarAusentes,
-                           RepositorioConciliacao repositorio) {
+                           RepositorioConciliacao repositorio, RepositorioArquivo repositorioArquivo) {
         return new JobBuilder(NOME_JOB, jobRepository)
+                .listener(new StatusArquivoJobListener(repositorioArquivo))
                 .listener(new LogExecucaoJobListener(repositorio))
                 .start(conciliarLinhas)
                 .next(registrarAusentes)
@@ -80,13 +85,28 @@ public class JobConciliacaoConfig {
     @Bean
     Step conciliarLinhas(JobRepository jobRepository, PlatformTransactionManager transactionManager,
                          FlatFileItemReader<LinhaArquivo> leitorArquivo, ConciliacaoLinhasWriter conciliacaoLinhasWriter,
-                         ConciliacaoProperties props) {
+                         LinhaInvalidaSkipListener linhaInvalidaSkipListener, ConciliacaoProperties props) {
         return new StepBuilder("conciliarLinhas", jobRepository)
                 .<LinhaArquivo, LinhaArquivo>chunk(props.job().tamanhoChunk())
                 .transactionManager(transactionManager)
                 .reader(leitorArquivo)
                 .writer(conciliacaoLinhasWriter)   // sem processor: a conciliação é feita por lote no writer
+                // Linha fora do layout é pulada (e publicada em conciliacao.erro) sem parar o arquivo.
+                // Só erros de leitura: falha de banco ou de Kafka no writer continua derrubando o chunk.
+                // Acima do limite, o arquivo é tratado como corrompido e o job falha.
+                .faultTolerant()
+                .skip(FlatFileParseException.class)
+                .skipLimit(props.job().limiteLinhasInvalidas())
+                .skipListener(linhaInvalidaSkipListener)
                 .build();
+    }
+
+    @Bean
+    @StepScope
+    LinhaInvalidaSkipListener linhaInvalidaSkipListener(PublicadorConciliacao publicador,
+                                                        @Value("#{jobParameters['idArquivo']}") String idArquivo,
+                                                        @Value("#{jobParameters['nomeArquivo']}") String nomeArquivo) {
+        return new LinhaInvalidaSkipListener(publicador, UUID.fromString(idArquivo), nomeArquivo);
     }
 
     /**
@@ -110,7 +130,7 @@ public class JobConciliacaoConfig {
 
     @Bean
     @StepScope
-    ConciliacaoLinhasWriter conciliacaoLinhasWriter(RepositorioConciliacao repositorio, PublicadorResultados publicador,
+    ConciliacaoLinhasWriter conciliacaoLinhasWriter(RepositorioConciliacao repositorio, PublicadorConciliacao publicador,
                                                     Conciliador conciliador,
                                                     @Value("#{jobParameters['idArquivo']}") String idArquivo,
                                                     @Value("#{jobParameters['dataReferencia']}") LocalDate dataReferencia) {
@@ -155,7 +175,7 @@ public class JobConciliacaoConfig {
 
     @Bean
     @StepScope
-    AusentesWriter ausentesWriter(RepositorioConciliacao repositorio, PublicadorResultados publicador,
+    AusentesWriter ausentesWriter(RepositorioConciliacao repositorio, PublicadorConciliacao publicador,
                                   Conciliador conciliador,
                                   @Value("#{jobParameters['idArquivo']}") String idArquivo,
                                   @Value("#{jobParameters['dataReferencia']}") LocalDate dataReferencia) {

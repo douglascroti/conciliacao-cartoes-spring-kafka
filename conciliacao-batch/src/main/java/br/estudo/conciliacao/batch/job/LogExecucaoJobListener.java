@@ -45,6 +45,6 @@ public class LogExecucaoJobListener implements JobExecutionListener {
         log.info("Resumo do arquivo {}: {}", execucao.getJobParameters().getString("nomeArquivo"),
                 repositorio.contarPorStatus(UUID.fromString(idArquivo)));
         execucao.getAllFailureExceptions()
-                .forEach(e -> log.error("Falha na execução {}: {}", execucao.getId(), e.toString()));
+                .forEach(e -> log.error("Falha na execução {}: {}", execucao.getId(), DescricaoErro.descrever(e)));
     }
 }
