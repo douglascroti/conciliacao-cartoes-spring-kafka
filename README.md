@@ -4,14 +4,14 @@
 ![Spring Boot](https://img.shields.io/badge/Spring%20Boot-4.0-6DB33F?logo=springboot)
 ![Spring Batch](https://img.shields.io/badge/Spring%20Batch-alta%20volumetria-6DB33F?logo=spring)
 ![Apache Kafka](https://img.shields.io/badge/Apache%20Kafka-KRaft-231F20?logo=apachekafka)
-![AWS](https://img.shields.io/badge/AWS-S3%20%7C%20Lambda-FF9900?logo=amazonaws)
+![AWS](https://img.shields.io/badge/AWS-S3%20%7C%20Lambda%20%7C%20DynamoDB-FF9900?logo=amazonaws)
 ![Docker](https://img.shields.io/badge/Docker-Compose-2496ED?logo=docker)
 ![PostgreSQL](https://img.shields.io/badge/PostgreSQL-18-4169E1?logo=postgresql)
 ![Status](https://img.shields.io/badge/status-em%20desenvolvimento-yellow)
 
 Simulação do processo de **conciliação de transações de cartão** entre uma **adquirente** e um **emissor**, construída com arquitetura orientada a eventos e processamento em lote de alta volumetria.
 
-O projeto reproduz um cenário real do mercado de meios de pagamento: todo dia a adquirente envia um arquivo com as transações capturadas, e o emissor precisa confrontar cada linha com o que foi autorizado, identificando transações conciliadas, divergentes ou não encontradas.
+O projeto reproduz um cenário real do mercado de meios de pagamento: todo dia a adquirente envia um arquivo com as transações capturadas, e o emissor precisa confrontar cada linha com o que foi autorizado, identificando transações conciliadas, divergentes, não encontradas e autorizações que ficaram fora do arquivo.
 
 ---
 
@@ -23,10 +23,13 @@ O projeto reproduz um cenário real do mercado de meios de pagamento: todo dia a
 - [Decisões técnicas](#-decisões-técnicas)
 - [Estrutura do repositório](#-estrutura-do-repositório)
 - [Como executar](#-como-executar)
+- [Operação](#-operação)
 - [Eventos Kafka](#-eventos-kafka)
+- [Garantias de processamento](#-garantias-de-processamento)
 - [Desempenho](#-desempenho)
 - [Formato do arquivo de conciliação](#-formato-do-arquivo-de-conciliação)
 - [Segurança e PCI-DSS](#-segurança-e-pci-dss)
+- [Solução de problemas](#-solução-de-problemas)
 - [Roadmap](#-roadmap)
 - [Autor](#-autor)
 
@@ -55,19 +58,21 @@ flowchart LR
     L -->|conciliacao.arquivo-recebido| K{{Kafka}}
     K --> C[Serviço de Conciliação<br/>Spring Boot]
     C -->|dispara| B[Job Spring Batch<br/>leitura em chunks]
-    B -->|lê arquivo| S3
-    B <-->|transações autorizadas| DB[(PostgreSQL)]
+    B -->|lê arquivo em streaming| S3
+    B <-->|autorizações, resultados,<br/>linhas inválidas, status| DB[(PostgreSQL)]
     B -->|conciliacao.resultado| K
     B -->|conciliacao.erro| K
+    UI[Kafka UI] -.->|inspeção| K
 ```
 
 **Fluxo resumido**
 
 1. A adquirente sobe o arquivo no bucket S3 `conciliacao`, prefixo `entrada/`.
-2. O evento do S3 dispara uma **Lambda** leve, que valida nome, layout e duplicidade (nome + ETag) e publica um único evento `arquivo-recebido` no Kafka.
-3. O **serviço de conciliação** consome o evento e inicia um **job Spring Batch**.
-4. O job lê o arquivo em **chunks**, confronta cada linha com as transações autorizadas no PostgreSQL e classifica o resultado.
-5. Cada resultado é publicado no Kafka; linhas inválidas vão para um tópico de erro sem interromper o processamento.
+2. O evento do S3 dispara uma **Lambda** leve, que valida nome, layout e duplicidade (nome + ETag) e publica um único evento `arquivo-recebido` no Kafka. Arquivos inválidos vão para `rejeitados/`.
+3. O **serviço de conciliação** consome o evento e inicia um **job Spring Batch** para o arquivo.
+4. O job lê o arquivo do S3 em **chunks**, sem baixá-lo inteiro, confronta cada linha com as transações autorizadas no PostgreSQL (uma consulta por chunk) e classifica o resultado.
+5. Um segundo passo procura as autorizações do dia que **não vieram no arquivo**.
+6. Cada resultado é gravado e publicado no Kafka; linhas inválidas são puladas e vão para um tópico de erro, sem interromper o processamento.
 
 A Lambda atua apenas como **gatilho**: o processamento pesado fica no batch, que suporta arquivos com milhões de linhas, restart e controle transacional, sem o limite de tempo de execução de uma função serverless.
 
@@ -78,12 +83,13 @@ A Lambda atua apenas como **gatilho**: o processamento pesado fica no batch, que
 | Camada | Tecnologia |
 | --- | --- |
 | Linguagem | Java 21 |
-| Framework | Spring Boot 4, Spring Batch, Spring Kafka, Spring Cloud Function |
-| Mensageria | Apache Kafka (modo KRaft, sem ZooKeeper) |
-| Cloud (emulada localmente) | AWS S3, Lambda e DynamoDB via LocalStack |
-| Banco de dados | PostgreSQL |
+| Framework | Spring Boot 4.0, Spring Batch 6, Spring Kafka 4, Spring Cloud Function |
+| Mensageria | Apache Kafka 4 (modo KRaft, sem ZooKeeper) e Kafka UI |
+| Cloud (emulada localmente) | AWS S3, Lambda e DynamoDB via LocalStack (AWS SDK v2) |
+| Banco de dados | PostgreSQL 18, schema versionado com Flyway |
 | Build | Maven multi-módulo (com Maven Wrapper) |
-| Containers | Docker, Docker Compose, Dockerfiles multi-stage |
+| Containers | Docker, Docker Compose, Dockerfile multi-stage |
+| Operação | Spring Boot Actuator (health e métricas) |
 
 ---
 
@@ -93,12 +99,17 @@ Os principais pontos de arquitetura:
 
 - **Lambda como gatilho, não como processador:** evita o limite de 15 minutos e mantém a função simples e barata.
 - **Spring Batch para alta volumetria:** processamento em chunks, restart a partir do ponto de falha via `JobRepository`, skip de linhas inválidas e tamanho de chunk configurável.
+- **Uma consulta por chunk, não por linha:** o `ItemProcessor` do Spring Batch recebe um item por vez; a conciliação fica no `ItemWriter`, que recebe o lote inteiro e busca as autorizações das N linhas numa consulta só (`nsu = ANY(?)`). Em 1 milhão de linhas, são mil consultas em vez de um milhão.
+- **Job assíncrono:** o consumer Kafka registra a execução e retorna; o job roda numa thread própria. Um arquivo que leva minutos não estoura o `max.poll.interval.ms` do consumer.
+- **Leitura em streaming do S3:** o arquivo é lido conforme o job avança, com memória constante. Se a conexão cair no meio, a leitura retoma do byte em que parou.
+- **Dinheiro com `BigDecimal`:** comparação com `compareTo`, porque o `equals` considera a escala (150.9 ≠ 150.90).
 - **Kafka para desacoplamento:** múltiplos consumidores podem reagir ao resultado da conciliação (agenda de recebíveis, relatórios, antifraude) sem acoplamento ao job.
 - **Idempotência na entrada:** o mesmo arquivo reenviado, ou o mesmo evento do S3 entregue duas vezes, não gera reprocessamento. A chave é nome + ETag, gravada de forma atômica: `UNIQUE` + `ON CONFLICT` no PostgreSQL ou `PutItem` condicional no DynamoDB, escolhido por `IDEMPOTENCIA_PROVEDOR` sem recompilar.
 - **Linhas inválidas não param o arquivo:** cada linha fora do layout é pulada e publicada em `conciliacao.erro` com o número e o motivo, sem dados do cartão; acima de um limite configurável, o arquivo é considerado corrompido.
 - **Restart do ponto de falha:** se o job cai no meio, ele continua do último chunk confirmado. Uma queda do serviço é recuperada automaticamente na subida; uma falha comum pode ser reiniciada por `POST /execucoes/{id}/reiniciar`.
 - **Arquivos inválidos não se perdem:** nome ou cabeçalho fora do layout movem o arquivo para `rejeitados/`, com o motivo em metadado.
-- **Cold start da Lambda em Java:** custo conhecido da JVM + Spring, mitigado na AWS real com **SnapStart**.
+- **Cold start da Lambda em Java:** no LocalStack, a inicialização (JVM + Spring) mede de 2,0 a 2,5 s e a primeira invocação de 300 a 600 ms; com o container já quente, de 10 a 70 ms. Para reduzir: só o compilador JIT C1 (`-XX:TieredStopAtLevel=1`), cliente Kafka puro em vez do Spring Kafka e JAR enxuto, sem WebFlux/Netty nem compressão nativa. Na AWS real, a mitigação seguinte é o **SnapStart**, que restaura a JVM já inicializada a partir de um snapshot; a conexão JDBC é revalidada antes do uso, o que cobre a conexão "morta" vinda do snapshot.
+- **Idempotência em PostgreSQL ou DynamoDB:** os dois provedores dão o mesmo resultado e o mesmo cold start no ambiente local. O ganho do DynamoDB aparece na AWS real, onde muitas Lambdas em paralelo esgotariam as conexões do Postgres (a alternativa seria o RDS Proxy).
 
 ---
 
@@ -106,7 +117,7 @@ Os principais pontos de arquitetura:
 
 ```
 .
-├── docker-compose.yml             # LocalStack, Kafka e PostgreSQL
+├── docker-compose.yml             # LocalStack, Kafka, PostgreSQL, serviço de conciliação e Kafka UI
 ├── .env.example                   # variáveis de ambiente necessárias
 ├── pom.xml                        # POM pai (multi-módulo)
 ├── mvnw, mvnw.cmd, .mvn/          # Maven Wrapper (não precisa instalar o Maven)
@@ -114,7 +125,7 @@ Os principais pontos de arquitetura:
 ├── conciliacao-lambda/            # Lambda: valida o arquivo e publica no Kafka
 ├── conciliacao-batch/             # Consumer Kafka + job Spring Batch (com Dockerfile multi-stage)
 ├── gerador-dados/                 # Gera o arquivo da adquirente, as autorizações e o gabarito para testes de volume
-├── infra/                         # Scripts de init (bucket, Lambda, tópicos), migrations e exemplos
+├── infra/                         # Init (bucket, tabela DynamoDB, Lambda, tópicos), migrations e exemplos
 ├── scripts/                       # Deploy da Lambda, carga de massa, envio, conferência e medição
 └── docs/
     └── comandos.md                # comandos do dia a dia (subir infra, deploy, inspecionar Kafka/S3/banco)
@@ -189,7 +200,7 @@ docker exec localstack awslocal s3 cp /exemplos/conciliacao_20261001.csv s3://co
 ```
 
 `/exemplos` é a pasta `infra/exemplos` montada no LocalStack; `awslocal` é a AWS CLI já
-apontada para o LocalStack. A geração de massa de dados chega na fase 4.
+apontada para o LocalStack. Para um teste com 1 milhão de linhas, veja [Desempenho](#-desempenho).
 
 ### 5. Acompanhar o resultado
 
@@ -215,15 +226,77 @@ e restart) estão em [`docs/comandos.md`](docs/comandos.md).
 
 ---
 
+## 🛠 Operação
+
+**Endpoints do serviço de conciliação** (porta 8081):
+
+| Endpoint | Para quê |
+| --- | --- |
+| `GET /actuator/health` | Saúde do serviço e da conexão com o banco (usado pelo healthcheck do container) |
+| `GET /actuator/metrics/spring.batch.job` | Métricas dos jobs executados |
+| `POST /execucoes/{id}/reiniciar` | Reinicia uma execução que falhou, do último chunk confirmado (`202` com o id da nova execução) |
+
+**Acompanhamento de um arquivo**, na tabela `arquivo_recebido`: `RECEBIDO` (Lambda) → `PROCESSANDO`
+→ `CONCLUIDO` ou `FALHA`, com linhas processadas, linhas inválidas e a mensagem de erro. As linhas
+inválidas ficam em `linha_invalida` (número e motivo); o progresso de cada job, nas tabelas do
+Spring Batch (`batch_job_execution`, `batch_step_execution`).
+
+**Variáveis do serviço de conciliação:**
+
+| Variável | Padrão | Efeito |
+| --- | --- | --- |
+| `JOB_TAMANHO_CHUNK` | 1000 | Linhas por transação (ver [Desempenho](#-desempenho)) |
+| `JOB_EXECUCOES_SIMULTANEAS` | 2 | Arquivos processados ao mesmo tempo |
+| `JOB_PERCENTUAL_MAXIMO_LINHAS_INVALIDAS` | 1 | Acima deste % das linhas lidas, o arquivo é considerado corrompido |
+| `JOB_MINIMO_LINHAS_INVALIDAS` | 100 | Tolerância mínima, para arquivos pequenos |
+
+**Scripts** (PowerShell, em `scripts/`):
+
+| Script | Para quê |
+| --- | --- |
+| `deploy-lambda.ps1` | Recompila e republica a Lambda no LocalStack |
+| `carregar-autorizacoes.ps1` | Carga em massa das autorizações geradas (`COPY`), repetível |
+| `enviar-arquivo.ps1` | Envia um arquivo grande para `s3://conciliacao/entrada/` |
+| `conferir-gabarito.ps1` | Compara o resultado do job com o gabarito do gerador; sai com código 1 se algo não bater |
+| `medir-desempenho.ps1` | Processa o arquivo com um tamanho de chunk e mede duração, memória e CPU |
+| `liberar-reenvio.ps1` | Só para testes: permite reprocessar um arquivo já recebido |
+| `limpar-ambiente.ps1` | Só para desenvolvimento: zera banco, DynamoDB, bucket e tópicos (`-Executar`; sem ele, só mostra o que faria) |
+
+---
+
 ## 📨 Eventos Kafka
 
 | Tópico | Produtor | Conteúdo |
 | --- | --- | --- |
-| `conciliacao.arquivo-recebido` | Lambda | Bucket, chave, ETag, tamanho e data de recebimento do arquivo |
-| `conciliacao.resultado` | Job Spring Batch | Resultado por transação: `CONCILIADA`, `DIVERGENTE`, `NAO_ENCONTRADA` ou `AUSENTE_NO_ARQUIVO` (autorização sem linha no arquivo), sem PAN |
-| `conciliacao.erro` | Job Spring Batch | Linhas inválidas, com número da linha e motivo |
+| `conciliacao.arquivo-recebido` | Lambda | Id do arquivo, bucket, chave, ETag, tamanho, data de referência e de recebimento. Chave: id do arquivo |
+| `conciliacao.resultado` | Job Spring Batch | Resultado por transação: `CONCILIADA`, `DIVERGENTE` (com os campos divergentes), `NAO_ENCONTRADA` ou `AUSENTE_NO_ARQUIVO` (autorização sem linha no arquivo), sem PAN. Chave: NSU |
+| `conciliacao.erro` | Job Spring Batch | Linhas inválidas, com número da linha e motivo (nunca o conteúdo). Chave: id do arquivo |
 
 Os eventos de resultado usam o **NSU** como chave: o milhão de resultados de um arquivo grande se espalha pelas partições, e os consumidores escalam com elas (com o id do arquivo como chave, tudo caía numa partição só). A entrega é *pelo menos uma vez*; consumidores usam `idArquivo + nsu + codigoAutorizacao` para descartar repetições.
+
+---
+
+## 🛡 Garantias de processamento
+
+Um arquivo de conciliação não pode ser perdido nem processado duas vezes. Cada ponto em que isso
+poderia acontecer tem uma proteção, e cada uma foi testada provocando a falha correspondente:
+
+| Situação | O que acontece |
+| --- | --- |
+| A adquirente reenvia o mesmo arquivo, ou o S3 entrega o mesmo evento duas vezes | A Lambda reconhece nome + ETag já registrados e não publica nada |
+| O mesmo nome chega com conteúdo diferente (correção) | ETag diferente: é tratado como arquivo novo |
+| O Kafka está fora do ar quando a Lambda publica | O registro de idempotência é desfeito e a retentativa automática da Lambda publica depois |
+| O evento do Kafka chega duas vezes ao serviço | Um arquivo é uma única execução de job (`JobInstance` por id); a segunda é recusada |
+| Linhas fora do layout | São puladas, registradas e publicadas em `conciliacao.erro`; o resto do arquivo segue |
+| O Kafka cai no meio do job | O chunk em andamento é desfeito por inteiro (nada fica gravado sem ter sido publicado); a execução fica `FALHA` e pode ser reiniciada |
+| O serviço morre no meio do job | Na subida, a execução interrompida é recuperada e continua do último chunk confirmado, antes de o consumer voltar a ler eventos |
+| A conexão com o S3 cai no meio da leitura | A leitura retoma do byte em que parou, com `If-Match` do ETag para nunca emendar duas versões do arquivo |
+
+Num restart, um mesmo resultado pode ser publicado de novo: a entrega no Kafka é *pelo menos uma
+vez*. No banco não há duplicidade: chaves únicas por arquivo e linha impedem a gravação dupla.
+
+Premissa: **uma instância** do serviço de conciliação. Com várias, a recuperação na subida precisaria
+de um controle de posse das execuções (lease/heartbeat) para não "recuperar" o job de outra instância viva.
 
 ---
 
@@ -263,12 +336,29 @@ Para reproduzir: [`docs/comandos.md`](docs/comandos.md), etapa 4.
 
 ## 📄 Formato do arquivo de conciliação
 
-Arquivo CSV com cabeçalho, nomeado no padrão `conciliacao_AAAAMMDD.csv`:
+Arquivo CSV com cabeçalho, separado por `;`, nomeado no padrão `conciliacao_AAAAMMDD.csv` (a data
+do nome é a data de referência):
 
 ```csv
 nsu;codigo_autorizacao;data_transacao;valor;pan_mascarado;mcc;parcelas
 000123456;A1B2C3;2026-10-01T14:32:10;150.90;411111******1111;5411;1
 ```
+
+| Campo | Regra |
+| --- | --- |
+| `nsu` + `codigo_autorizacao` | Chave da conciliação com a autorização do emissor; não podem ser vazios |
+| `data_transacao` | ISO 8601 (`AAAA-MM-DDThh:mm:ss`); na conciliação basta o mesmo dia |
+| `valor` | Decimal com ponto, maior que zero |
+| `pan_mascarado` | Formato esperado: 6 primeiros e 4 últimos dígitos (`411111******1111`); não entra em resultados, eventos nem logs |
+| `mcc` | Texto (preserva zeros à esquerda) |
+| `parcelas` | Inteiro, no mínimo 1 |
+
+Na Lambda: nome fora do padrão, arquivo vazio ou cabeçalho diferente movem o arquivo para
+`rejeitados/`. No job: linha que viola alguma regra acima é pulada e registrada.
+
+**Resultado da conciliação:** `CONCILIADA` quando valor, parcelas e dia batem; `DIVERGENTE` lista os
+campos diferentes (`VALOR`, `PARCELAS`, `DATA`); `NAO_ENCONTRADA` quando não há autorização; e
+`AUSENTE_NO_ARQUIVO` para a autorização do dia que a adquirente não informou.
 
 ---
 
@@ -277,8 +367,30 @@ nsu;codigo_autorizacao;data_transacao;valor;pan_mascarado;mcc;parcelas
 Mesmo sendo um ambiente de estudo, o projeto segue práticas exigidas em sistemas de cartões:
 
 - O número do cartão (**PAN**) nunca é armazenado nem logado completo; os dados de exemplo usam PAN mascarado.
-- Segredos ficam fora do código e do repositório (`.env` no `.gitignore`).
+- Resultados, eventos Kafka e mensagens de erro identificam a transação por NSU + código de
+  autorização, sem o PAN. O motivo de uma linha inválida nunca inclui o conteúdo da linha (a mensagem
+  padrão do Spring Batch traz a linha inteira e é descartada; há teste para isso).
+- Segredos ficam fora do código e do repositório (`.env` no `.gitignore` e no `.dockerignore`, fora da imagem).
+- O serviço de conciliação roda no container com usuário sem privilégios.
 - Valores monetários são tratados com `BigDecimal`, nunca com ponto flutuante.
+- O endpoint de restart não tem autenticação: é operacional e, fora do ambiente local, ficaria
+  atrás de autenticação ou de rede interna.
+
+---
+
+## 🧯 Solução de problemas
+
+| Sintoma | Causa e solução |
+| --- | --- |
+| Maven falha com `PKIX path building failed` | Antivírus com inspeção de HTTPS (AVG, Avast etc.) reassinando os certificados. Faça o Java usar os certificados do Windows: variável de usuário `MAVEN_OPTS=-Djavax.net.ssl.trustStoreType=Windows-ROOT` e um terminal novo |
+| `docker compose up` reclama de `LOCALSTACK_AUTH_TOKEN` | Falta o token no `.env` (gratuito no plano Hobby do LocalStack) |
+| A Lambda não é publicada ao subir o ambiente | O JAR ainda não existia: rode `.\mvnw.cmd package` e depois `.\scripts\deploy-lambda.ps1` |
+| `Unable to rename ... .jar.original` no build (Windows) | O serviço está rodando pelo `java -jar` e o Windows trava o JAR em uso: pare-o antes de compilar |
+| No Git Bash, `docker exec ... /opt/kafka/...` procura `C:/Program Files/Git/opt/...` | O Git Bash converte caminhos que começam com `/`: prefixe o comando com `MSYS_NO_PATHCONV=1` (ou use o PowerShell) |
+| Reenvio de um arquivo não gera job | É a idempotência funcionando (mesmo nome + ETag). Para testes: `.\scripts\liberar-reenvio.ps1 <arquivo>` |
+| Log `Leitura de s3://... interrompida ...; retomando` | Normal em arquivos grandes: a conexão com o S3 caiu e a leitura continuou do mesmo byte |
+| Rodar o serviço pela IDE e pelo container ao mesmo tempo | Não faça: as duas instâncias dividiriam as partições. `docker compose stop conciliacao-batch` antes |
+| Dados de testes antigos atrapalhando | `.\scripts\limpar-ambiente.ps1 -Executar` |
 
 ---
 
@@ -288,7 +400,7 @@ Mesmo sendo um ambiente de estudo, o projeto segue práticas exigidas em sistema
 - [x] **Fase 2:** Lambda Java publicando no Kafka a partir do upload no S3
 - [x] **Fase 3:** consumer Kafka e job Spring Batch de conciliação
 - [x] **Fase 4:** gerador de massa de dados e teste com 1 milhão de linhas
-- [ ] **Fase 5:** documentação
+- [x] **Fase 5:** documentação
 - [ ] **Fase 6:** testes automatizados com JUnit 5 e Testcontainers
 - [ ] **Fase 7:** observabilidade com OpenTelemetry, Prometheus e Grafana
 - [ ] **Fase 8:** pipeline CI/CD com GitHub Actions e scan de segurança (Trivy)
