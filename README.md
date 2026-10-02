@@ -299,6 +299,7 @@ Mesmo sendo um ambiente de estudo, o projeto segue práticas exigidas em sistema
 ## 👤 Autor
 
 **Douglas Croti**
-Engenheiro de software com mais de 15 anos de experiência em sistemas web críticos, seguros e escaláveis, com atuação em fintech, meios de pagamento e provedores de internet.
+> - Desenvolvedor de Software | - Sistemas Web Seguros | - Experiência em Fintechs e Provedores de Internet | - Engenheiro de Software 
+> - Foco em Desenvolvimento Web, Segurança e Transações Financeiras
 
 [![GitHub](https://img.shields.io/badge/GitHub-douglascroti-181717?logo=github)](https://github.com/douglascroti)

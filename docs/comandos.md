@@ -212,9 +212,18 @@ docker exec localstack awslocal lambda invoke --function-name receber-arquivo-co
 ### Recomeçar os testes do zero
 
 ```powershell
-docker exec postgres psql -U conciliacao -d conciliacao -c "truncate arquivo_recebido"
-docker compose restart localstack     # bucket recriado vazio e Lambda republicada
+.\scripts\limpar-ambiente.ps1                                  # mostra o que seria feito, sem fazer
+.\scripts\limpar-ambiente.ps1 -Executar                        # limpa tudo (~30 s)
+.\scripts\limpar-ambiente.ps1 -Executar -ManterAutorizacoes -ManterMassa
 ```
+
+Só para desenvolvimento. Para o serviço, esvazia as tabelas do Postgres (resultados, linhas
+inválidas, arquivos, autorizações e metadados do Spring Batch; o histórico do Flyway fica, então as
+migrations não rodam de novo), recria a tabela do DynamoDB, esvazia o bucket, apaga os logs da
+Lambda, apaga e recria os tópicos e o consumer group do Kafka, apaga `conciliacao-batch\logs` e
+`massa\`, e sobe o serviço de novo. Containers, volumes e imagens não são recriados.
+
+O Kafka apaga os tópicos em duas fases: o disco só é liberado ~1 min depois (`file.delete.delay.ms`).
 
 ---
 
