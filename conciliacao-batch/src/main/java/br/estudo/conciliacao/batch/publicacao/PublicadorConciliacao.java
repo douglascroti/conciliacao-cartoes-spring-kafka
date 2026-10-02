@@ -8,6 +8,7 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
+import java.util.function.Function;
 
 import org.springframework.kafka.core.KafkaTemplate;
 import org.springframework.stereotype.Component;
@@ -20,7 +21,13 @@ import tools.jackson.databind.json.JsonMapper;
 
 /**
  * Publica os eventos do job: resultados em {@code conciliacao.resultado} e linhas inválidas em
- * {@code conciliacao.erro}. A chave é sempre o id do arquivo.
+ * {@code conciliacao.erro}.
+ *
+ * <p>Chave dos resultados: o NSU. Ela espalha o milhão de resultados de um arquivo grande pelas
+ * partições, e os consumidores (agenda de recebíveis, relatórios, antifraude) escalam com elas. Com
+ * a chave {@code idArquivo}, o arquivo inteiro caía numa partição só. A ordem entre transações
+ * diferentes não importa; as mensagens de uma mesma transação continuam na mesma partição. Os
+ * erros, poucos e sem NSU confiável (a linha pode estar quebrada), usam o id do arquivo.
  *
  * <p>Envia todas as mensagens de uma vez (o producer agrupa em poucas requisições) e só então
  * espera todas as confirmações, como um {@code await Promise.all(envios)} no Node. Se alguma
@@ -46,17 +53,16 @@ public class PublicadorConciliacao {
                         r.codigoAutorizacao(), r.status(), List.copyOf(r.camposDivergentes()), r.valorArquivo(),
                         r.valorAutorizado(), processadoEm))
                 .toList();
-        enviarEEsperar(Topicos.RESULTADO, idArquivo, eventos);
+        enviarEEsperar(Topicos.RESULTADO, idArquivo, eventos, ResultadoConciliacaoEvento::nsu);
     }
 
     public void publicarErro(ErroLinhaEvento erro) {
-        enviarEEsperar(Topicos.ERRO, erro.idArquivo(), List.of(erro));
+        enviarEEsperar(Topicos.ERRO, erro.idArquivo(), List.of(erro), e -> e.idArquivo().toString());
     }
 
-    private void enviarEEsperar(String topico, UUID idArquivo, List<?> eventos) {
-        String chave = idArquivo.toString();
+    private <T> void enviarEEsperar(String topico, UUID idArquivo, List<T> eventos, Function<T, String> chave) {
         CompletableFuture<?>[] envios = eventos.stream()
-                .map(evento -> kafka.send(topico, chave, json.writeValueAsString(evento)))
+                .map(evento -> kafka.send(topico, chave.apply(evento), json.writeValueAsString(evento)))
                 .toArray(CompletableFuture[]::new);
         try {
             CompletableFuture.allOf(envios).get(TIMEOUT_SEGUNDOS, TimeUnit.SECONDS);

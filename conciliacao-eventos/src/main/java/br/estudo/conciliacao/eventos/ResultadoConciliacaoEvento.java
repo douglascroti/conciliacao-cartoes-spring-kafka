@@ -13,8 +13,10 @@ import java.util.UUID;
  * <p>A entrega é "pelo menos uma vez": num restart do job, um lote pode ser publicado de novo.
  * Consumidores devem tratar {@code (idArquivo, nsu, codigoAutorizacao)} como chave de idempotência.
  *
- * @param idArquivo          arquivo de origem; chave da mensagem Kafka (resultados do mesmo arquivo
- *                           ficam na mesma partição, em ordem)
+ * <p>A chave da mensagem Kafka é o {@code nsu}: os resultados de um arquivo se espalham pelas
+ * partições (sem ordem entre transações diferentes).
+ *
+ * @param idArquivo          arquivo de origem
  * @param numeroLinha        linha no arquivo; nulo em {@code AUSENTE_NO_ARQUIVO}
  * @param camposDivergentes  vazio, exceto em {@code DIVERGENTE}
  * @param valorArquivo       nulo em {@code AUSENTE_NO_ARQUIVO}

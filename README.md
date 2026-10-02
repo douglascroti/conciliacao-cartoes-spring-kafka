@@ -24,6 +24,7 @@ O projeto reproduz um cenário real do mercado de meios de pagamento: todo dia a
 - [Estrutura do repositório](#-estrutura-do-repositório)
 - [Como executar](#-como-executar)
 - [Eventos Kafka](#-eventos-kafka)
+- [Desempenho](#-desempenho)
 - [Formato do arquivo de conciliação](#-formato-do-arquivo-de-conciliação)
 - [Segurança e PCI-DSS](#-segurança-e-pci-dss)
 - [Roadmap](#-roadmap)
@@ -112,9 +113,9 @@ Os principais pontos de arquitetura:
 ├── conciliacao-eventos/           # DTOs e contratos dos eventos
 ├── conciliacao-lambda/            # Lambda: valida o arquivo e publica no Kafka
 ├── conciliacao-batch/             # Consumer Kafka + job Spring Batch (com Dockerfile multi-stage)
-├── gerador-dados/                 # Gera CSVs de teste e massa de transações autorizadas (fase 4)
+├── gerador-dados/                 # Gera o arquivo da adquirente, as autorizações e o gabarito para testes de volume
 ├── infra/                         # Scripts de init (bucket, Lambda, tópicos), migrations e exemplos
-├── scripts/                       # Utilitários (deploy da Lambda)
+├── scripts/                       # Deploy da Lambda, carga de massa, envio, conferência e medição
 └── docs/
     └── comandos.md                # comandos do dia a dia (subir infra, deploy, inspecionar Kafka/S3/banco)
 ```
@@ -222,7 +223,41 @@ e restart) estão em [`docs/comandos.md`](docs/comandos.md).
 | `conciliacao.resultado` | Job Spring Batch | Resultado por transação: `CONCILIADA`, `DIVERGENTE`, `NAO_ENCONTRADA` ou `AUSENTE_NO_ARQUIVO` (autorização sem linha no arquivo), sem PAN |
 | `conciliacao.erro` | Job Spring Batch | Linhas inválidas, com número da linha e motivo |
 
-Os eventos de resultado usam o **id do arquivo** como chave: os resultados de um arquivo ficam na mesma partição, em ordem. A entrega é *pelo menos uma vez*; consumidores usam `idArquivo + nsu + codigoAutorizacao` para descartar repetições.
+Os eventos de resultado usam o **NSU** como chave: o milhão de resultados de um arquivo grande se espalha pelas partições, e os consumidores escalam com elas (com o id do arquivo como chave, tudo caía numa partição só). A entrega é *pelo menos uma vez*; consumidores usam `idArquivo + nsu + codigoAutorizacao` para descartar repetições.
+
+---
+
+## 📈 Desempenho
+
+Teste com **1 milhão de linhas** gerado pelo `gerador-dados`, passando pelo fluxo completo
+(S3 → Lambda → Kafka → Spring Batch → PostgreSQL e Kafka), tudo local em Docker. O serviço de
+conciliação roda em container limitado a 768 MB. Para cada linha, o job consulta a autorização
+(uma consulta por chunk), grava o resultado e publica uma mensagem no Kafka.
+
+| Chunk | Duração do job | Linhas/s | Memória máx. |
+| --- | --- | --- | --- |
+| 1.000 (padrão) | 103 s | ~9.700 | 260 MB |
+| 5.000 | 91 s | ~11.000 | 315 MB |
+
+Em todas as rodadas o resultado conferiu com o gabarito do gerador: 924.889 conciliadas,
+39.857 divergentes, 30.294 não encontradas, 25.000 ausentes no arquivo e 4.960 linhas inválidas.
+O chunk é ajustável por `JOB_TAMANHO_CHUNK`.
+
+**O que o teste de volume revelou e mudou no código:**
+
+- **Conexões longas com o S3 caem:** a leitura de um arquivo grande leva mais de um minuto, e a
+  conexão era derrubada no meio. Agora a leitura retoma do byte em que parou (`Range` + `If-Match`
+  do ETag), sem perder nem repetir linhas.
+- **Chave das mensagens:** com o id do arquivo como chave, o milhão de resultados caía numa única
+  partição. Com o NSU, as mensagens se espalham e o job ficou ~8% mais rápido.
+- **Contagem exata depois de um restart:** linhas inválidas de um chunk desfeito eram contadas duas
+  vezes; agora ficam numa tabela com chave por arquivo e linha.
+- **Limite de linhas inválidas percentual** (1% das linhas lidas), e não um número fixo que não escala.
+
+> Números de um ambiente local (Windows 11, Docker Desktop com ~7,4 GB para os containers): servem
+> para comparar configurações, não como capacidade de produção.
+
+Para reproduzir: [`docs/comandos.md`](docs/comandos.md), etapa 4.
 
 ---
 
@@ -252,7 +287,7 @@ Mesmo sendo um ambiente de estudo, o projeto segue práticas exigidas em sistema
 - [x] **Fase 1:** estrutura Maven multi-módulo e infraestrutura com Docker Compose
 - [x] **Fase 2:** Lambda Java publicando no Kafka a partir do upload no S3
 - [x] **Fase 3:** consumer Kafka e job Spring Batch de conciliação
-- [ ] **Fase 4:** gerador de massa de dados e teste com 1 milhão de linhas
+- [x] **Fase 4:** gerador de massa de dados e teste com 1 milhão de linhas
 - [ ] **Fase 5:** documentação
 - [ ] **Fase 6:** testes automatizados com JUnit 5 e Testcontainers
 - [ ] **Fase 7:** observabilidade com OpenTelemetry, Prometheus e Grafana

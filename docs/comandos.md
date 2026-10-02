@@ -541,6 +541,22 @@ verificada a cada 5 min e só em segmentos fechados de 128 MB):
 docker exec kafka sh -c 'du -sh /var/lib/kafka/data/conciliacao.resultado-*'
 ```
 
+### Medir o desempenho com outro tamanho de chunk
+
+```powershell
+.\scripts\medir-desempenho.ps1 -Chunk 5000          # -Data 2026-10-15 por padrão
+```
+
+Recria o serviço com o chunk pedido, libera o reenvio, envia o arquivo, amostra memória e CPU a
+cada 3 s, confere o gabarito e termina com uma linha `RESULTADO chunk=... memoria_max=... gabarito=...`.
+Depois das medições, volte ao padrão com `docker compose up -d conciliacao-batch`.
+
+Tempo por step (o step do arquivo concentra quase tudo):
+
+```powershell
+docker exec postgres psql -U conciliacao -d conciliacao -c "select e.job_execution_id, s.step_name, s.read_count, s.commit_count, round(extract(epoch from s.end_time - s.start_time)::numeric, 1) segundos from batch_job_execution e join batch_step_execution s using (job_execution_id) order by 1 desc, s.step_execution_id limit 6"
+```
+
 Linhas inválidas de um arquivo:
 
 ```powershell
