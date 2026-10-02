@@ -87,7 +87,7 @@ A Lambda atua apenas como **gatilho**: o processamento pesado fica no batch, que
 
 ## 🧭 Decisões técnicas
 
-As decisões relevantes estão registradas como **ADRs (Architecture Decision Records)** em [`docs/adr`](docs/adr). Os principais pontos:
+Os principais pontos de arquitetura:
 
 - **Lambda como gatilho, não como processador:** evita o limite de 15 minutos e mantém a função simples e barata.
 - **Spring Batch para alta volumetria:** processamento em chunks, restart a partir do ponto de falha via `JobRepository`, skip de linhas inválidas e tamanho de chunk configurável.
@@ -102,7 +102,6 @@ As decisões relevantes estão registradas como **ADRs (Architecture Decision Re
 
 ```
 .
-├── CLAUDE.md                      # contexto do projeto para o agente de desenvolvimento
 ├── docker-compose.yml             # LocalStack, Kafka e PostgreSQL
 ├── .env.example                   # variáveis de ambiente necessárias
 ├── pom.xml                        # POM pai (multi-módulo)
@@ -114,8 +113,7 @@ As decisões relevantes estão registradas como **ADRs (Architecture Decision Re
 ├── infra/                         # Scripts de init (bucket, Lambda, tópicos), migrations e exemplos
 ├── scripts/                       # Utilitários (deploy da Lambda)
 └── docs/
-    ├── adr/                       # decisões de arquitetura
-    └── prompts/                   # prompts usados em cada fase do desenvolvimento
+    └── comandos.md                # comandos do dia a dia (subir infra, deploy, inspecionar Kafka/S3/banco)
 ```
 
 > A estrutura evolui conforme as fases do [roadmap](#-roadmap).
@@ -235,7 +233,7 @@ Mesmo sendo um ambiente de estudo, o projeto segue práticas exigidas em sistema
 - [x] **Fase 2:** Lambda Java publicando no Kafka a partir do upload no S3
 - [ ] **Fase 3:** consumer Kafka e job Spring Batch de conciliação
 - [ ] **Fase 4:** gerador de massa de dados e teste com 1 milhão de linhas
-- [ ] **Fase 5:** documentação e ADRs
+- [ ] **Fase 5:** documentação
 - [ ] **Fase 6:** testes automatizados com JUnit 5 e Testcontainers
 - [ ] **Fase 7:** observabilidade com OpenTelemetry, Prometheus e Grafana
 - [ ] **Fase 8:** pipeline CI/CD com GitHub Actions e scan de segurança (Trivy)
