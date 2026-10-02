@@ -10,6 +10,7 @@ import org.springframework.batch.infrastructure.item.file.FlatFileParseException
 
 import br.estudo.conciliacao.batch.leitura.LinhaArquivo;
 import br.estudo.conciliacao.batch.leitura.LinhaInvalidaException;
+import br.estudo.conciliacao.batch.persistencia.RepositorioArquivo;
 import br.estudo.conciliacao.batch.publicacao.PublicadorConciliacao;
 import br.estudo.conciliacao.eventos.ErroLinhaEvento;
 
@@ -26,12 +27,20 @@ public class LinhaInvalidaSkipListener implements SkipListener<LinhaArquivo, Lin
 
     private static final int TAMANHO_MAXIMO_MOTIVO = 300;
 
+    // Num arquivo grande podem ser milhares: as primeiras vão para o log em WARN, o resto em DEBUG
+    // (todas ficam em linha_invalida e em conciliacao.erro, e o total sai no resumo do job).
+    private static final int MAXIMO_NO_LOG = 20;
+
     private final PublicadorConciliacao publicador;
+    private final RepositorioArquivo repositorio;
     private final UUID idArquivo;
     private final String nomeArquivo;
+    private int registradasNoLog;
 
-    public LinhaInvalidaSkipListener(PublicadorConciliacao publicador, UUID idArquivo, String nomeArquivo) {
+    public LinhaInvalidaSkipListener(PublicadorConciliacao publicador, RepositorioArquivo repositorio,
+                                     UUID idArquivo, String nomeArquivo) {
         this.publicador = publicador;
+        this.repositorio = repositorio;
         this.idArquivo = idArquivo;
         this.nomeArquivo = nomeArquivo;
     }
@@ -42,7 +51,15 @@ public class LinhaInvalidaSkipListener implements SkipListener<LinhaArquivo, Lin
             return;
         }
         String motivo = motivo(falha);
-        log.warn("Linha {} do arquivo {} inválida, pulada: {}", falha.getLineNumber(), nomeArquivo, motivo);
+        if (registradasNoLog < MAXIMO_NO_LOG) {
+            log.warn("Linha {} do arquivo {} inválida, pulada: {}", falha.getLineNumber(), nomeArquivo, motivo);
+            if (++registradasNoLog == MAXIMO_NO_LOG) {
+                log.warn("Arquivo {}: as próximas linhas inválidas vão só para linha_invalida e conciliacao.erro", nomeArquivo);
+            }
+        } else {
+            log.debug("Linha {} do arquivo {} inválida, pulada: {}", falha.getLineNumber(), nomeArquivo, motivo);
+        }
+        repositorio.registrarLinhaInvalida(idArquivo, falha.getLineNumber(), motivo);
         publicador.publicarErro(new ErroLinhaEvento(idArquivo, nomeArquivo, falha.getLineNumber(), motivo, Instant.now()));
     }
 

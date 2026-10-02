@@ -506,6 +506,47 @@ diferentes não colidem na chave única de `transacao_autorizada`.
 > As divergências de DATA são autorizações do dia seguinte. Não processe o arquivo do dia
 > seguinte com a mesma massa, senão elas aparecem lá como `AUSENTE_NO_ARQUIVO`.
 
+### Teste de 1 milhão de linhas
+
+```powershell
+docker compose run --rm flyway                                         # migrations até a V5 (linha_invalida)
+.\scripts\carregar-autorizacoes.ps1 massa\transacoes_autorizadas_20261015.csv   # COPY: ~17 s para 1 milhão
+.\scripts\enviar-arquivo.ps1 massa\conciliacao_20261015.csv
+docker logs -f conciliacao-batch                                       # até "Resumo do arquivo ..."
+.\scripts\conferir-gabarito.ps1 massa\gabarito_20261015.json
+```
+
+O `conferir-gabarito.ps1` compara cada status, as divergências por campo e as linhas inválidas com o
+gabarito, mostra a duração (soma das execuções, se houve restart) e sai com código 1 se algo não bater.
+Resultado de referência: ~112 s, ~260 MB de memória no container, todos os números conferindo.
+
+A carga das autorizações pode ser repetida: o `COPY` vai para uma tabela temporária e o
+`INSERT ... ON CONFLICT DO NOTHING` ignora o que já existe.
+
+Para **repetir** o teste com o mesmo arquivo (a idempotência o descartaria como duplicado), libere o
+reenvio antes. Só para testes: apaga o registro de idempotência (Postgres e DynamoDB) e os resultados anteriores.
+
+```powershell
+.\scripts\liberar-reenvio.ps1 conciliacao_20261015.csv
+```
+
+Em arquivos grandes, a conexão com o S3 pode cair no meio da leitura (no LocalStack, por volta de 75 s).
+O log mostra `Leitura de s3://... interrompida no byte N ...; retomando` e a leitura continua do mesmo
+ponto (GET com `Range` e `If-Match` do ETag), sem perder nem repetir linhas.
+
+Espaço do Kafka por partição (a retenção de `conciliacao.resultado` é 24 h ou 512 MB por partição,
+verificada a cada 5 min e só em segmentos fechados de 128 MB):
+
+```powershell
+docker exec kafka sh -c 'du -sh /var/lib/kafka/data/conciliacao.resultado-*'
+```
+
+Linhas inválidas de um arquivo:
+
+```powershell
+docker exec postgres psql -U conciliacao -d conciliacao -c "select numero_linha, motivo from linha_invalida where id_arquivo = (select id from arquivo_recebido where nome_arquivo='conciliacao_20261015.csv' order by recebido_em desc limit 1) order by numero_linha limit 20"
+```
+
 ---
 
 ## Diagnóstico — memória do Kafka

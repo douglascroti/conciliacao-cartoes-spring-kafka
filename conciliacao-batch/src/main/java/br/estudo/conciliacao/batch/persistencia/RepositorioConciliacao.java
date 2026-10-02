@@ -92,6 +92,10 @@ public class RepositorioConciliacao {
                 .collect(Collectors.toMap(Map.Entry::getKey, Map.Entry::getValue, (a, b) -> a, LinkedHashMap::new));
     }
 
+    public long contarLinhasInvalidas(UUID idArquivo) {
+        return jdbc.sql("SELECT count(*) FROM linha_invalida WHERE id_arquivo = ?").param(idArquivo).query(Long.class).single();
+    }
+
     public static TransacaoAutorizada mapearAutorizacao(ResultSet rs, int numeroLinha) throws SQLException {
         return new TransacaoAutorizada(
                 rs.getLong("id"),

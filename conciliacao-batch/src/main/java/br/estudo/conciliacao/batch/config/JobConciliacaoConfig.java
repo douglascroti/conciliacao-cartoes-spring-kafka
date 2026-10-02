@@ -103,10 +103,10 @@ public class JobConciliacaoConfig {
 
     @Bean
     @StepScope
-    LinhaInvalidaSkipListener linhaInvalidaSkipListener(PublicadorConciliacao publicador,
+    LinhaInvalidaSkipListener linhaInvalidaSkipListener(PublicadorConciliacao publicador, RepositorioArquivo repositorioArquivo,
                                                         @Value("#{jobParameters['idArquivo']}") String idArquivo,
                                                         @Value("#{jobParameters['nomeArquivo']}") String nomeArquivo) {
-        return new LinhaInvalidaSkipListener(publicador, UUID.fromString(idArquivo), nomeArquivo);
+        return new LinhaInvalidaSkipListener(publicador, repositorioArquivo, UUID.fromString(idArquivo), nomeArquivo);
     }
 
     /**

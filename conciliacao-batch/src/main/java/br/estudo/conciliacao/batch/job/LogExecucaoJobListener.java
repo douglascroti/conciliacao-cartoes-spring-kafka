@@ -42,8 +42,9 @@ public class LogExecucaoJobListener implements JobExecutionListener {
                 execucao.getId(), execucao.getJobParameters().getString("nomeArquivo"),
                 execucao.getStatus(), lidas, gravadas, duracao.toMillis());
         String idArquivo = execucao.getJobParameters().getString("idArquivo");
-        log.info("Resumo do arquivo {}: {}", execucao.getJobParameters().getString("nomeArquivo"),
-                repositorio.contarPorStatus(UUID.fromString(idArquivo)));
+        log.info("Resumo do arquivo {}: {}, linhas inválidas={}", execucao.getJobParameters().getString("nomeArquivo"),
+                repositorio.contarPorStatus(UUID.fromString(idArquivo)),
+                repositorio.contarLinhasInvalidas(UUID.fromString(idArquivo)));
         execucao.getAllFailureExceptions()
                 .forEach(e -> log.error("Falha na execução {}: {}", execucao.getId(), DescricaoErro.descrever(e)));
     }

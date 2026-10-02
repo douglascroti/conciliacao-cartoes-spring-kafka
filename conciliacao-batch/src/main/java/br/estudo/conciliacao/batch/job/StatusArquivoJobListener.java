@@ -51,6 +51,6 @@ public class StatusArquivoJobListener implements JobExecutionListener {
             mensagem = mensagem.substring(0, TAMANHO_MAXIMO_MENSAGEM);
         }
         repositorio.finalizarProcessamento(UUID.fromString(execucao.getJobParameters().getString("idArquivo")),
-                execucao.getJobInstance().getInstanceId(), concluido ? "CONCLUIDO" : "FALHA", mensagem);
+                concluido ? "CONCLUIDO" : "FALHA", mensagem);
     }
 }

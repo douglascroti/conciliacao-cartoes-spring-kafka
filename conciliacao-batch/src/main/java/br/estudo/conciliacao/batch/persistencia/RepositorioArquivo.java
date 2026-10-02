@@ -29,19 +29,23 @@ public class RepositorioArquivo {
 
     /*
      * Contagens calculadas do banco, e não dos contadores da execução atual: depois de um restart,
-     * a execução nova só conhece as linhas que ela leu. As linhas inválidas somam os skips de todas
-     * as execuções do job (JobInstance) deste arquivo.
+     * a execução nova só conhece as linhas que ela leu. As inválidas vêm de linha_invalida, e não da
+     * soma dos skips das execuções: um chunk desfeito numa falha já teve os skips contados e, relido
+     * no restart, seria contado de novo (no teste de 1 milhão: 4.964 em vez de 4.960).
      */
     private static final String SQL_FINALIZAR = """
             UPDATE arquivo_recebido
                SET status = ?, mensagem_erro = ?, finalizado_em = now(),
                    linhas_processadas = (SELECT count(*) FROM resultado_conciliacao
                                           WHERE id_arquivo = ? AND numero_linha IS NOT NULL),
-                   linhas_invalidas = (SELECT coalesce(sum(s.read_skip_count), 0)
-                                         FROM batch_step_execution s
-                                         JOIN batch_job_execution e ON e.job_execution_id = s.job_execution_id
-                                        WHERE e.job_instance_id = ? AND s.step_name = 'conciliarLinhas')
+                   linhas_invalidas = (SELECT count(*) FROM linha_invalida WHERE id_arquivo = ?)
              WHERE id = ?
+            """;
+
+    // A mesma linha registrada de novo (chunk relido num restart) é ignorada: a contagem fica exata.
+    private static final String SQL_LINHA_INVALIDA = """
+            INSERT INTO linha_invalida (id_arquivo, numero_linha, motivo) VALUES (?, ?, ?)
+            ON CONFLICT (id_arquivo, numero_linha) DO NOTHING
             """;
 
     private final JdbcClient jdbc;
@@ -57,9 +61,13 @@ public class RepositorioArquivo {
                 .update();
     }
 
-    public void finalizarProcessamento(UUID id, long idJobInstance, String status, String mensagemErro) {
+    public void finalizarProcessamento(UUID id, String status, String mensagemErro) {
         jdbc.sql(SQL_FINALIZAR)
-                .params(status, mensagemErro, id, idJobInstance, id)
+                .params(status, mensagemErro, id, id, id)
                 .update();
+    }
+
+    public void registrarLinhaInvalida(UUID idArquivo, int numeroLinha, String motivo) {
+        jdbc.sql(SQL_LINHA_INVALIDA).params(idArquivo, numeroLinha, motivo).update();
     }
 }
