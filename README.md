@@ -111,7 +111,7 @@ Os principais pontos de arquitetura:
 ├── mvnw, mvnw.cmd, .mvn/          # Maven Wrapper (não precisa instalar o Maven)
 ├── conciliacao-eventos/           # DTOs e contratos dos eventos
 ├── conciliacao-lambda/            # Lambda: valida o arquivo e publica no Kafka
-├── conciliacao-batch/             # Consumer Kafka + job Spring Batch
+├── conciliacao-batch/             # Consumer Kafka + job Spring Batch (com Dockerfile multi-stage)
 ├── gerador-dados/                 # Gera CSVs de teste e massa de transações autorizadas (fase 4)
 ├── infra/                         # Scripts de init (bucket, Lambda, tópicos), migrations e exemplos
 ├── scripts/                       # Utilitários (deploy da Lambda)
@@ -150,53 +150,67 @@ cp .env.example .env
 
 Gera, entre outros, o JAR da Lambda (`conciliacao-lambda/target/conciliacao-lambda-*-aws.jar`).
 
-### 3. Subir a infraestrutura
+### 3. Subir o ambiente
 
 ```bash
 docker compose up -d --wait   # retorna quando todos os serviços estão saudáveis
 ```
 
-Ao subir, o Flyway aplica as migrations no PostgreSQL, o `kafka-init` cria os tópicos e o
-LocalStack cria o bucket e a tabela do DynamoDB, publica a Lambda e liga a notificação do S3 a ela.
+Ao subir, o Flyway aplica as migrations no PostgreSQL, o `kafka-init` cria os tópicos, o
+LocalStack cria o bucket e a tabela do DynamoDB, publica a Lambda e liga a notificação do S3 a ela,
+e o serviço de conciliação (imagem construída pelo `conciliacao-batch/Dockerfile`) passa a consumir
+os eventos. Na primeira vez o build da imagem leva cerca de 2 minutos.
 
-| Serviço | Porta |
+| Serviço | Endereço |
 | --- | --- |
-| LocalStack (S3, Lambda, DynamoDB) | 4566 |
+| Kafka UI (tópicos, mensagens, consumer groups) | http://localhost:8080 |
+| Serviço de conciliação (Actuator) | http://localhost:8081/actuator/health |
+| LocalStack (S3, Lambda, DynamoDB) | `localhost:4566` |
 | Kafka (containers na rede Docker) | `kafka:9092` |
 | Kafka (aplicações no host) | `localhost:9094` |
-| PostgreSQL | 5432 |
+| PostgreSQL | `localhost:5432` |
 
-Depois de alterar o código da Lambda, republique com:
+Depois de alterar o código:
 
 ```powershell
-.\scripts\deploy-lambda.ps1
+.\scripts\deploy-lambda.ps1                          # Lambda: recompila e republica no LocalStack
+docker compose up -d --build conciliacao-batch       # serviço de conciliação: reconstrói a imagem
 ```
 
 ### 4. Enviar um arquivo
 
+Carregue as transações autorizadas de exemplo (uma para cada resultado possível) e envie o arquivo
+da adquirente:
+
 ```bash
+docker exec -i postgres psql -U conciliacao -d conciliacao < infra/exemplos/transacoes_autorizadas_20261001.sql
 docker exec localstack awslocal s3 cp /exemplos/conciliacao_20261001.csv s3://conciliacao/entrada/
 ```
 
 `/exemplos` é a pasta `infra/exemplos` montada no LocalStack; `awslocal` é a AWS CLI já
 apontada para o LocalStack. A geração de massa de dados chega na fase 4.
 
-Ver o evento publicado pela Lambda:
-
-```bash
-docker exec kafka /opt/kafka/bin/kafka-console-consumer.sh --bootstrap-server localhost:9092 \
-  --topic conciliacao.arquivo-recebido --from-beginning
-```
-
-Todos os comandos de validação, por etapa, estão em [`docs/comandos.md`](docs/comandos.md).
-
 ### 5. Acompanhar o resultado
 
 ```bash
-docker compose exec kafka /opt/kafka/bin/kafka-console-consumer.sh \
-  --bootstrap-server localhost:9092 \
-  --topic conciliacao.resultado --from-beginning
+docker logs -f conciliacao-batch
 ```
+
+```
+Job finalizado: execução 1 do arquivo conciliacao_20261001.csv com status COMPLETED (5 lidas, 5 gravadas, 752 ms)
+Resumo do arquivo conciliacao_20261001.csv: {AUSENTE_NO_ARQUIVO=1, CONCILIADA=1, DIVERGENTE=2, NAO_ENCONTRADA=1}
+```
+
+No Kafka UI (http://localhost:8080), os resultados ficam em `conciliacao.resultado` e as linhas
+inválidas em `conciliacao.erro`. No banco:
+
+```bash
+docker exec postgres psql -U conciliacao -d conciliacao -c "select nome_arquivo, status, linhas_processadas, linhas_invalidas from arquivo_recebido order by recebido_em desc limit 5"
+docker exec postgres psql -U conciliacao -d conciliacao -c "select numero_linha, nsu, status, campos_divergentes from resultado_conciliacao order by id desc limit 10"
+```
+
+Todos os cenários de validação (duplicidade, linhas inválidas, Kafka fora do ar, queda do serviço
+e restart) estão em [`docs/comandos.md`](docs/comandos.md).
 
 ---
 
@@ -237,7 +251,7 @@ Mesmo sendo um ambiente de estudo, o projeto segue práticas exigidas em sistema
 
 - [x] **Fase 1:** estrutura Maven multi-módulo e infraestrutura com Docker Compose
 - [x] **Fase 2:** Lambda Java publicando no Kafka a partir do upload no S3
-- [ ] **Fase 3:** consumer Kafka e job Spring Batch de conciliação
+- [x] **Fase 3:** consumer Kafka e job Spring Batch de conciliação
 - [ ] **Fase 4:** gerador de massa de dados e teste com 1 milhão de linhas
 - [ ] **Fase 5:** documentação
 - [ ] **Fase 6:** testes automatizados com JUnit 5 e Testcontainers

@@ -1,0 +1,13 @@
+# O contexto do build é a raiz do repositório (o módulo precisa do POM pai e de conciliacao-eventos).
+# Tudo que não entra na compilação fica fora: build mais rápido e nenhum segredo dentro da imagem.
+**/target/
+**/logs/
+.git/
+.idea/
+.vscode/
+.claude/
+.env
+docs/
+infra/
+scripts/
+*.md

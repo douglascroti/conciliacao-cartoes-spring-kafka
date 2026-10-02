@@ -272,21 +272,36 @@ Os cenários 1 a 4 da etapa 2 valem para os dois provedores. Diferenças com Dyn
 
 ## Etapa 3 — Serviço Batch: evento do Kafka → job Spring Batch
 
-### Subir o serviço no host
+### Serviço no container (padrão)
 
-Com a infra no ar (`docker compose up -d --wait`):
+O `docker compose up -d --wait` já sobe o serviço `conciliacao-batch` e o Kafka UI
+(http://localhost:8080). Depois de alterar o código do serviço:
 
 ```powershell
-docker compose run --rm flyway                       # aplica migrations novas (V2: tabelas do Spring Batch)
+docker compose up -d --build conciliacao-batch       # reconstrói a imagem e recria o container
+docker logs -f conciliacao-batch                     # log (em UTC dentro do container)
+```
+
+Migrations novas: `docker compose run --rm flyway` (o compose só roda o Flyway na criação do container).
+
+### Rodar o serviço no host (IDE/debug)
+
+Pare o container antes: duas instâncias no mesmo grupo dividiriam as partições, e a recuperação
+de jobs interrompidos assume uma instância só.
+
+```powershell
+docker compose stop conciliacao-batch
 .\mvnw.cmd -pl conciliacao-batch -am package -DskipTests
 cd conciliacao-batch; java -jar target\conciliacao-batch-0.1.0-SNAPSHOT.jar
 ```
 
-O log também vai para `conciliacao-batch\logs\batch.log`. Para acompanhar de outro terminal:
+No host, o log também vai para `conciliacao-batch\logs\batch.log`. Para acompanhar de outro terminal:
 
 ```powershell
 Get-Content conciliacao-batch\logs\batch.log -Wait -Tail 20 -Encoding UTF8
 ```
+
+Para voltar ao container: pare o `java -jar` e rode `docker compose up -d conciliacao-batch`.
 
 Saúde do serviço (banco, disco) e métricas:
 
@@ -320,8 +335,8 @@ docker exec kafka /opt/kafka/bin/kafka-consumer-groups.sh --bootstrap-server loc
 docker exec localstack awslocal s3 cp /exemplos/conciliacao_20261001.csv s3://conciliacao/entrada/
 ```
 
-No log: `Evento recebido` (thread do consumer), `Job iniciado`, `Chunk com N linhas` e
-`Job finalizado ... COMPLETED` (thread `job-N`). Se o arquivo já foi recebido antes, a Lambda o
+No log: `Evento recebido` (thread do consumer), `Job iniciado`, `Job finalizado ... COMPLETED`
+e `Resumo do arquivo ...` com a contagem por status (thread `job-N`). Se o arquivo já foi recebido antes, a Lambda o
 trata como duplicado e nenhum job é criado; use outro nome/data.
 
 ### Cenário 2 — evento repetido não reprocessa

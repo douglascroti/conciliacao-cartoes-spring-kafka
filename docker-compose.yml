@@ -136,6 +136,67 @@ services:
     networks:
       - conciliacao-net
 
+  # Serviço de conciliação (Spring Boot + Spring Batch): consome o evento e executa o job.
+  # Para rodar pelo host/IDE durante o desenvolvimento, pare este container antes
+  # (docker compose stop conciliacao-batch): duas instâncias no mesmo grupo dividiriam as
+  # partições, e a recuperação de jobs interrompidos assume uma instância só (ADR 0008).
+  conciliacao-batch:
+    build:
+      context: .
+      dockerfile: conciliacao-batch/Dockerfile
+    image: conciliacao-batch:local
+    container_name: conciliacao-batch
+    depends_on:
+      kafka-init:
+        condition: service_completed_successfully
+      flyway:
+        condition: service_completed_successfully
+      localstack:
+        condition: service_healthy
+    ports:
+      - "8081:8081"
+    environment:
+      KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+      DB_URL: jdbc:postgresql://postgres:5432/${POSTGRES_DB:-conciliacao}?reWriteBatchedInserts=true
+      DB_USER: ${POSTGRES_USER:-conciliacao}
+      DB_PASSWORD: ${POSTGRES_PASSWORD:-conciliacao}
+      AWS_ENDPOINT_URL: http://localstack:4566
+      AWS_REGION: us-east-1
+      JOB_TAMANHO_CHUNK: ${JOB_TAMANHO_CHUNK:-1000}
+      JOB_EXECUCOES_SIMULTANEAS: ${JOB_EXECUCOES_SIMULTANEAS:-2}
+      JOB_LIMITE_LINHAS_INVALIDAS: ${JOB_LIMITE_LINHAS_INVALIDAS:-1000}
+    # Com ExitOnOutOfMemoryError (Dockerfile), uma falta de memória derruba a JVM e o Docker sobe
+    # o container de novo; na subida, a recuperação retoma o job interrompido. Só vale quando o
+    # processo morre sozinho: docker stop/kill contam como parada manual e não reiniciam.
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 768m
+    networks:
+      - conciliacao-net
+
+  # Interface web do Kafka: tópicos, mensagens, consumer groups e atraso (lag). http://localhost:8080
+  kafka-ui:
+    image: kafbat/kafka-ui:v1.5.0
+    container_name: kafka-ui
+    depends_on:
+      kafka:
+        condition: service_healthy
+    ports:
+      - "8080:8080"
+    environment:
+      KAFKA_CLUSTERS_0_NAME: conciliacao
+      KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS: kafka:9092
+      DYNAMIC_CONFIG_ENABLED: "false"
+      JAVA_OPTS: -Xmx256m
+    deploy:
+      resources:
+        limits:
+          memory: 512m
+    networks:
+      - conciliacao-net
+
 networks:
   conciliacao-net:
     # Nome fixo (sem o prefixo do projeto) para o LAMBDA_DOCKER_NETWORK encontrar a rede.
