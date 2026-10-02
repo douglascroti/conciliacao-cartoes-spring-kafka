@@ -49,7 +49,9 @@ conciliacao:
   job:
     tamanho-chunk: ${JOB_TAMANHO_CHUNK:1000}
     execucoes-simultaneas: ${JOB_EXECUCOES_SIMULTANEAS:2}
-    limite-linhas-invalidas: ${JOB_LIMITE_LINHAS_INVALIDAS:1000}
+    # O arquivo falha se as linhas inválidas passarem deste percentual das linhas lidas (mínimo tolerado: 100).
+    percentual-maximo-linhas-invalidas: ${JOB_PERCENTUAL_MAXIMO_LINHAS_INVALIDAS:1}
+    minimo-linhas-invalidas: ${JOB_MINIMO_LINHAS_INVALIDAS:100}
 
 server:
   # 8080 fica para o Kafka UI (3d).

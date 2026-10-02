@@ -2,6 +2,7 @@
 target/
 *.log
 logs/
+massa/
 .idea/
 .vscode/
 # Documentos internos de desenvolvimento (ficam só na máquina local)

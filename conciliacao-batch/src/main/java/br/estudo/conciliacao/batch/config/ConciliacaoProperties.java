@@ -18,8 +18,11 @@ public record ConciliacaoProperties(S3 s3, Job job) {
     /**
      * @param tamanhoChunk          linhas lidas, processadas e gravadas por transação
      * @param execucoesSimultaneas  quantos arquivos são processados ao mesmo tempo
-     * @param limiteLinhasInvalidas acima disso o arquivo é considerado corrompido e o job falha
+     * @param percentualMaximoLinhasInvalidas acima deste percentual das linhas lidas, o arquivo é
+     *                                        considerado corrompido e o job falha
+     * @param minimoLinhasInvalidas           tolerância mínima, para arquivos pequenos
      */
-    public record Job(int tamanhoChunk, int execucoesSimultaneas, int limiteLinhasInvalidas) {
+    public record Job(int tamanhoChunk, int execucoesSimultaneas, double percentualMaximoLinhasInvalidas,
+                      long minimoLinhasInvalidas) {
     }
 }

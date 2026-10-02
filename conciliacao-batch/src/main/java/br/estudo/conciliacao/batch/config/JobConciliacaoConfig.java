@@ -14,7 +14,6 @@ import org.springframework.batch.core.step.builder.StepBuilder;
 import org.springframework.batch.infrastructure.item.database.JdbcCursorItemReader;
 import org.springframework.batch.infrastructure.item.database.builder.JdbcCursorItemReaderBuilder;
 import org.springframework.batch.infrastructure.item.file.FlatFileItemReader;
-import org.springframework.batch.infrastructure.item.file.FlatFileParseException;
 import org.springframework.batch.infrastructure.item.file.builder.FlatFileItemReaderBuilder;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
@@ -25,6 +24,7 @@ import br.estudo.conciliacao.batch.conciliacao.Conciliador;
 import br.estudo.conciliacao.batch.conciliacao.TransacaoAutorizada;
 import br.estudo.conciliacao.batch.job.AusentesWriter;
 import br.estudo.conciliacao.batch.job.ConciliacaoLinhasWriter;
+import br.estudo.conciliacao.batch.job.LimitePercentualLinhasInvalidas;
 import br.estudo.conciliacao.batch.job.LinhaInvalidaSkipListener;
 import br.estudo.conciliacao.batch.job.LogExecucaoJobListener;
 import br.estudo.conciliacao.batch.job.StatusArquivoJobListener;
@@ -93,10 +93,10 @@ public class JobConciliacaoConfig {
                 .writer(conciliacaoLinhasWriter)   // sem processor: a conciliação é feita por lote no writer
                 // Linha fora do layout é pulada (e publicada em conciliacao.erro) sem parar o arquivo.
                 // Só erros de leitura: falha de banco ou de Kafka no writer continua derrubando o chunk.
-                // Acima do limite, o arquivo é tratado como corrompido e o job falha.
+                // Acima do limite (percentual das linhas lidas), o arquivo é tratado como corrompido e o job falha.
                 .faultTolerant()
-                .skip(FlatFileParseException.class)
-                .skipLimit(props.job().limiteLinhasInvalidas())
+                .skipPolicy(new LimitePercentualLinhasInvalidas(props.job().percentualMaximoLinhasInvalidas(),
+                        props.job().minimoLinhasInvalidas()))
                 .skipListener(linhaInvalidaSkipListener)
                 .build();
     }

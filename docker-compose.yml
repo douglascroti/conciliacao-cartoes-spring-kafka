@@ -164,7 +164,8 @@ services:
       AWS_REGION: us-east-1
       JOB_TAMANHO_CHUNK: ${JOB_TAMANHO_CHUNK:-1000}
       JOB_EXECUCOES_SIMULTANEAS: ${JOB_EXECUCOES_SIMULTANEAS:-2}
-      JOB_LIMITE_LINHAS_INVALIDAS: ${JOB_LIMITE_LINHAS_INVALIDAS:-1000}
+      JOB_PERCENTUAL_MAXIMO_LINHAS_INVALIDAS: ${JOB_PERCENTUAL_MAXIMO_LINHAS_INVALIDAS:-1}
+      JOB_MINIMO_LINHAS_INVALIDAS: ${JOB_MINIMO_LINHAS_INVALIDAS:-100}
     # Com ExitOnOutOfMemoryError (Dockerfile), uma falta de memória derruba a JVM e o Docker sobe
     # o container de novo; na subida, a recuperação retoma o job interrompido. Só vale quando o
     # processo morre sozinho: docker stop/kill contam como parada manual e não reiniciam.

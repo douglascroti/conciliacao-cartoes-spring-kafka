@@ -14,6 +14,8 @@ COPY .mvn .mvn
 COPY conciliacao-eventos/pom.xml conciliacao-eventos/
 COPY conciliacao-lambda/pom.xml conciliacao-lambda/
 COPY conciliacao-batch/pom.xml conciliacao-batch/
+# O POM pai lista todos os módulos: sem os POMs deles o Maven não monta o reactor.
+COPY gerador-dados/pom.xml gerador-dados/
 COPY conciliacao-eventos/src conciliacao-eventos/src
 COPY conciliacao-batch/src conciliacao-batch/src
 

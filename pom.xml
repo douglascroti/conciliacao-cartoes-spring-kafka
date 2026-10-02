@@ -26,6 +26,7 @@
         <module>conciliacao-eventos</module>
         <module>conciliacao-lambda</module>
         <module>conciliacao-batch</module>
+        <module>gerador-dados</module>
     </modules>
 
     <properties>

@@ -1,0 +1,52 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <parent>
+        <groupId>br.estudo.conciliacao</groupId>
+        <artifactId>conciliacao-parent</artifactId>
+        <version>0.1.0-SNAPSHOT</version>
+    </parent>
+
+    <artifactId>gerador-dados</artifactId>
+    <name>Conciliação :: Gerador de dados</name>
+    <description>Gera o arquivo da adquirente, as transações autorizadas e o gabarito para testes de volume.</description>
+
+    <properties>
+        <start-class>br.estudo.conciliacao.gerador.GeradorDados</start-class>
+    </properties>
+
+    <dependencies>
+        <!-- Só o layout do arquivo (cabeçalho e separador), o mesmo que a Lambda valida e o Batch lê. -->
+        <dependency>
+            <groupId>br.estudo.conciliacao</groupId>
+            <artifactId>conciliacao-eventos</artifactId>
+        </dependency>
+
+        <dependency>
+            <groupId>org.junit.jupiter</groupId>
+            <artifactId>junit-jupiter</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.assertj</groupId>
+            <artifactId>assertj-core</artifactId>
+            <scope>test</scope>
+        </dependency>
+    </dependencies>
+
+    <build>
+        <plugins>
+            <!--
+                Sem Spring no código: o plugin só empacota um JAR executável com as dependências
+                (java -jar gerador-dados/target/gerador-dados-0.1.0-SNAPSHOT.jar ...).
+            -->
+            <plugin>
+                <groupId>org.springframework.boot</groupId>
+                <artifactId>spring-boot-maven-plugin</artifactId>
+            </plugin>
+        </plugins>
+    </build>
+</project>

@@ -404,7 +404,9 @@ inválidas vão para `conciliacao.erro` (número da linha e motivo, nunca o cont
 docker exec kafka /opt/kafka/bin/kafka-console-consumer.sh --bootstrap-server localhost:9092 --topic conciliacao.erro --from-beginning --timeout-ms 5000
 ```
 
-Acima de `JOB_LIMITE_LINHAS_INVALIDAS` (padrão 1000) o arquivo é tratado como corrompido e o job falha.
+O arquivo é tratado como corrompido, e o job falha, quando as linhas inválidas passam de
+`JOB_PERCENTUAL_MAXIMO_LINHAS_INVALIDAS` (padrão 1%) das linhas lidas até ali, com tolerância mínima de
+`JOB_MINIMO_LINHAS_INVALIDAS` (padrão 100) para arquivos pequenos.
 
 ### Status do arquivo
 
@@ -469,6 +471,40 @@ docker exec postgres psql -U conciliacao -d conciliacao -c "select job_execution
 
 > No Git Bash, prefixe os `docker exec` que têm caminhos (`/opt/kafka/...`, `/aws/lambda/...`) com
 > `MSYS_NO_PATHCONV=1`; senão o Git Bash converte o caminho para `C:/Program Files/Git/...`.
+
+---
+
+## Etapa 4 — Gerador de massa de dados e teste de volume
+
+### Gerar a massa
+
+```powershell
+.\mvnw.cmd -pl gerador-dados -am package
+java -jar gerador-dados\target\gerador-dados-0.1.0-SNAPSHOT.jar --linhas 1000000 --data 2026-10-15
+```
+
+Saída em `massa\` (fora do git), em ~2 s para 1 milhão de linhas:
+
+| Arquivo | Conteúdo |
+| --- | --- |
+| `conciliacao_20261015.csv` | arquivo da adquirente (~68 MB) |
+| `transacoes_autorizadas_20261015.csv` | autorizações do emissor, no formato do `COPY` (~68 MB) |
+| `gabarito_20261015.json` | quantidade esperada de cada status, para conferir o resultado do job |
+
+Distribuição padrão das linhas do arquivo: 4% divergente (valor, parcelas ou data), 3% não encontrada,
+0,5% inválida e o restante (92,5%) conciliada; mais 2,5% de autorizações que não estão no arquivo
+(`AUSENTE_NO_ARQUIVO`). Tudo ajustável:
+
+```powershell
+java -jar gerador-dados\target\gerador-dados-0.1.0-SNAPSHOT.jar --linhas 50000 --data 2026-10-16 --semente 7 `
+  --pct-divergente 10 --pct-nao-encontrada 5 --pct-invalida 1 --pct-ausente 3 --saida massa
+```
+
+A mesma semente gera arquivos idênticos. O NSU começa pelo `MMdd` da data, então massas de datas
+diferentes não colidem na chave única de `transacao_autorizada`.
+
+> As divergências de DATA são autorizações do dia seguinte. Não processe o arquivo do dia
+> seguinte com a mesma massa, senão elas aparecem lá como `AUSENTE_NO_ARQUIVO`.
 
 ---
 
