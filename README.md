@@ -9,10 +9,19 @@
 ![PostgreSQL](https://img.shields.io/badge/PostgreSQL-18-4169E1?logo=postgresql)
 ![Testcontainers](https://img.shields.io/badge/Testcontainers-JUnit%205-2496ED?logo=testcontainers)
 ![Status](https://img.shields.io/badge/status-em%20desenvolvimento-yellow)
+![Licença](https://img.shields.io/badge/licen%C3%A7a-MIT-blue)
 
 Simulação do processo de **conciliação de transações de cartão** entre uma **adquirente** e um **emissor**, construída com arquitetura orientada a eventos e processamento em lote de alta volumetria.
 
 O projeto reproduz um cenário real do mercado de meios de pagamento: todo dia a adquirente envia um arquivo com as transações capturadas, e o emissor precisa confrontar cada linha com o que foi autorizado, identificando transações conciliadas, divergentes, não encontradas e autorizações que ficaram fora do arquivo.
+
+### ⚡ Em 30 segundos
+
+- **Fluxo completo orientado a eventos:** S3 → Lambda (Java 21) → Kafka → Spring Batch → PostgreSQL e Kafka, rodando 100% local com Docker e LocalStack, em um único `docker compose up`.
+- **Volume real:** **1 milhão de linhas em ~103 s**, com ~260 MB de memória, e o resultado conferido número a número contra um gabarito gerado junto com a massa de dados.
+- **Nenhum arquivo perdido nem processado duas vezes:** idempotência em três camadas, restart do último chunk confirmado, recuperação automática depois de uma queda e retomada da leitura do S3. Cada garantia foi testada **provocando a falha** correspondente.
+- **61 testes automatizados:** 49 unitários e 12 de integração com Testcontainers (LocalStack, PostgreSQL e Kafka de verdade).
+- **Práticas de sistemas de cartões:** o PAN nunca entra em resultados, eventos ou logs, e dinheiro é sempre `BigDecimal`.
 
 ---
 
@@ -34,6 +43,7 @@ O projeto reproduz um cenário real do mercado de meios de pagamento: todo dia a
 - [Solução de problemas](#-solução-de-problemas)
 - [Roadmap](#-roadmap)
 - [Autor](#-autor)
+- [Licença](#-licença)
 
 ---
 
@@ -130,6 +140,7 @@ Os principais pontos de arquitetura:
 ├── gerador-dados/                 # Gera o arquivo da adquirente, as autorizações e o gabarito para testes de volume
 ├── infra/                         # Init (bucket, tabela DynamoDB, Lambda, tópicos), migrations e exemplos
 ├── scripts/                       # Deploy da Lambda, carga de massa, envio, conferência e medição
+├── LICENSE                        # licença MIT
 └── docs/
     └── comandos.md                # comandos do dia a dia (subir infra, deploy, inspecionar Kafka/S3/banco)
 ```
@@ -449,3 +460,9 @@ Mesmo sendo um ambiente de estudo, o projeto segue práticas exigidas em sistema
 > - Foco em Desenvolvimento Web, Segurança e Transações Financeiras
 
 [![GitHub](https://img.shields.io/badge/GitHub-douglascroti-181717?logo=github)](https://github.com/douglascroti)
+
+---
+
+## 📜 Licença
+
+Distribuído sob a licença MIT. Veja [`LICENSE`](LICENSE).
