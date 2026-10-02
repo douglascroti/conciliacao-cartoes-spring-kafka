@@ -7,6 +7,7 @@
 ![AWS](https://img.shields.io/badge/AWS-S3%20%7C%20Lambda%20%7C%20DynamoDB-FF9900?logo=amazonaws)
 ![Docker](https://img.shields.io/badge/Docker-Compose-2496ED?logo=docker)
 ![PostgreSQL](https://img.shields.io/badge/PostgreSQL-18-4169E1?logo=postgresql)
+![Testcontainers](https://img.shields.io/badge/Testcontainers-JUnit%205-2496ED?logo=testcontainers)
 ![Status](https://img.shields.io/badge/status-em%20desenvolvimento-yellow)
 
 Simulação do processo de **conciliação de transações de cartão** entre uma **adquirente** e um **emissor**, construída com arquitetura orientada a eventos e processamento em lote de alta volumetria.
@@ -26,6 +27,7 @@ O projeto reproduz um cenário real do mercado de meios de pagamento: todo dia a
 - [Operação](#-operação)
 - [Eventos Kafka](#-eventos-kafka)
 - [Garantias de processamento](#-garantias-de-processamento)
+- [Testes](#-testes)
 - [Desempenho](#-desempenho)
 - [Formato do arquivo de conciliação](#-formato-do-arquivo-de-conciliação)
 - [Segurança e PCI-DSS](#-segurança-e-pci-dss)
@@ -122,6 +124,7 @@ Os principais pontos de arquitetura:
 ├── pom.xml                        # POM pai (multi-módulo)
 ├── mvnw, mvnw.cmd, .mvn/          # Maven Wrapper (não precisa instalar o Maven)
 ├── conciliacao-eventos/           # DTOs e contratos dos eventos
+├── conciliacao-teste-suporte/     # Containers compartilhados dos testes de integração (só em escopo de teste)
 ├── conciliacao-lambda/            # Lambda: valida o arquivo e publica no Kafka
 ├── conciliacao-batch/             # Consumer Kafka + job Spring Batch (com Dockerfile multi-stage)
 ├── gerador-dados/                 # Gera o arquivo da adquirente, as autorizações e o gabarito para testes de volume
@@ -300,6 +303,37 @@ de um controle de posse das execuções (lease/heartbeat) para não "recuperar" 
 
 ---
 
+## 🧪 Testes
+
+```bash
+./mvnw package     # 49 testes unitários, sem Docker (~15 s, sem o clean)
+./mvnw verify      # + 12 testes de integração com containers de verdade (~90 s com o clean)
+```
+
+**Unitários** (`*Test.java`): regras de conciliação (incluindo `BigDecimal` com escalas diferentes e a
+chave NSU + código), validação do layout do arquivo, limite percentual de linhas inválidas, retomada
+da leitura do S3 depois de uma queda de conexão (sem perder nem repetir bytes), seleção do provedor de
+idempotência, gerador de massa (gabarito e reprodutibilidade) e a garantia de que nenhuma mensagem de
+erro carrega o conteúdo da linha.
+
+**Integração** (`*IT.java`), com [Testcontainers](https://testcontainers.com) e as **mesmas imagens do
+docker-compose** (LocalStack, PostgreSQL 18 e Kafka 4); o PostgreSQL recebe as migrations reais de
+`infra/postgres/migrations`:
+
+| Teste | Containers | O que prova |
+| --- | --- | --- |
+| `ConciliacaoJobIT` | LocalStack (S3), PostgreSQL, Kafka | Evento no Kafka → job → os quatro status no banco e no tópico (chave NSU, sem PAN); evento repetido não reprocessa; linhas inválidas vão para `linha_invalida` e `conciliacao.erro` |
+| `ReceberArquivoFunctionIT` | LocalStack (S3), PostgreSQL, Kafka | A Lambda publica um evento por arquivo, mesmo com a notificação entregue duas vezes; nome ou cabeçalho inválidos movem o arquivo para `rejeitados/` com o motivo |
+| `RegistroIdempotenciaPostgresIT` | PostgreSQL | `ON CONFLICT` detecta o duplicado; mesmo nome com outro conteúdo é arquivo novo; desfazer permite a retentativa |
+| `RegistroIdempotenciaDynamoIT` | LocalStack (DynamoDB) | `PutItem` condicional detecta o duplicado; a remoção não apaga o registro de outra execução |
+
+Cada container sobe uma vez e é reaproveitado por todos os testes do módulo; ao fim, o
+Testcontainers remove tudo. Requisitos: Docker em execução e o `LOCALSTACK_AUTH_TOKEN` (lido da
+variável de ambiente ou, se ela não existir, do `.env`). Sem token, os testes que usam o LocalStack são
+**pulados** com o motivo, em vez de falhar.
+
+---
+
 ## 📈 Desempenho
 
 Teste com **1 milhão de linhas** gerado pelo `gerador-dados`, passando pelo fluxo completo
@@ -401,7 +435,7 @@ Mesmo sendo um ambiente de estudo, o projeto segue práticas exigidas em sistema
 - [x] **Fase 3:** consumer Kafka e job Spring Batch de conciliação
 - [x] **Fase 4:** gerador de massa de dados e teste com 1 milhão de linhas
 - [x] **Fase 5:** documentação
-- [ ] **Fase 6:** testes automatizados com JUnit 5 e Testcontainers
+- [x] **Fase 6:** testes automatizados com JUnit 5 e Testcontainers
 - [ ] **Fase 7:** observabilidade com OpenTelemetry, Prometheus e Grafana
 - [ ] **Fase 8:** pipeline CI/CD com GitHub Actions e scan de segurança (Trivy)
 - [ ] **Fase 9:** deploy na AWS com Terraform

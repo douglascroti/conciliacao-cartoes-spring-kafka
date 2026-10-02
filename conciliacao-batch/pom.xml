@@ -74,6 +74,18 @@
             <artifactId>spring-boot-starter-batch-test</artifactId>
             <scope>test</scope>
         </dependency>
+        <!-- Testes de integração (*IT): PostgreSQL, Kafka e LocalStack em containers. -->
+        <dependency>
+            <groupId>br.estudo.conciliacao</groupId>
+            <artifactId>conciliacao-teste-suporte</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <!-- Espera por condições assíncronas (o job roda em outra thread) sem sleep fixo. -->
+        <dependency>
+            <groupId>org.awaitility</groupId>
+            <artifactId>awaitility</artifactId>
+            <scope>test</scope>
+        </dependency>
     </dependencies>
 
     <build>

@@ -24,6 +24,7 @@
 
     <modules>
         <module>conciliacao-eventos</module>
+        <module>conciliacao-teste-suporte</module>
         <module>conciliacao-lambda</module>
         <module>conciliacao-batch</module>
         <module>gerador-dados</module>
@@ -62,6 +63,26 @@
                 <artifactId>conciliacao-eventos</artifactId>
                 <version>${project.version}</version>
             </dependency>
+            <dependency>
+                <groupId>br.estudo.conciliacao</groupId>
+                <artifactId>conciliacao-teste-suporte</artifactId>
+                <version>${project.version}</version>
+            </dependency>
         </dependencies>
     </dependencyManagement>
+
+    <build>
+        <plugins>
+            <!--
+                Dois tipos de teste:
+                  *Test.java -> unitários, no "mvnw package" (surefire), sem Docker;
+                  *IT.java   -> integração com containers, no "mvnw verify" (failsafe).
+                O spring-boot-starter-parent já configura as fases do failsafe; aqui só o ligamos.
+            -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-failsafe-plugin</artifactId>
+            </plugin>
+        </plugins>
+    </build>
 </project>

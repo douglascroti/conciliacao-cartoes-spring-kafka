@@ -16,7 +16,10 @@ COPY conciliacao-lambda/pom.xml conciliacao-lambda/
 COPY conciliacao-batch/pom.xml conciliacao-batch/
 # O POM pai lista todos os módulos: sem os POMs deles o Maven não monta o reactor.
 COPY gerador-dados/pom.xml gerador-dados/
+COPY conciliacao-teste-suporte/pom.xml conciliacao-teste-suporte/
 COPY conciliacao-eventos/src conciliacao-eventos/src
+# Os testes do batch são compilados (o -DskipTests só pula a execução) e usam o módulo de suporte.
+COPY conciliacao-teste-suporte/src conciliacao-teste-suporte/src
 COPY conciliacao-batch/src conciliacao-batch/src
 
 # O cache do ~/.m2 sobrevive entre builds (não vai para a imagem): só baixa o que mudou.

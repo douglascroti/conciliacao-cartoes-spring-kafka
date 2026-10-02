@@ -203,11 +203,20 @@ docker exec localstack awslocal lambda invoke --function-name receber-arquivo-co
 > O payload precisa ter o formato completo do S3. Um JSON qualquer chega à função sem registros
 > e gera o aviso `Evento sem registros S3 recebido`.
 
-### Testes unitários
+### Testes
 
 ```powershell
-.\mvnw.cmd -pl conciliacao-lambda -am test
+.\mvnw.cmd package                                    # só os unitários (*Test), sem Docker
+.\mvnw.cmd verify                                     # unitários + integração (*IT) com Testcontainers
+.\mvnw.cmd -pl conciliacao-batch -am verify           # só um módulo (e os de que ele depende)
+.\mvnw.cmd -pl conciliacao-lambda -am verify "-Dit.test=RegistroIdempotenciaDynamoIT"   # um teste de integração
 ```
+
+Os testes de integração sobem seus próprios containers (LocalStack, PostgreSQL, Kafka), separados do
+docker-compose: não precisam do ambiente no ar nem interferem nele. Precisam do Docker e do
+`LOCALSTACK_AUTH_TOKEN` (variável de ambiente ou `.env`); sem o token, os que usam o LocalStack são
+pulados. Relatórios em `<módulo>\target\failsafe-reports`; o log do serviço nos testes do batch fica em
+`conciliacao-batch\target\batch-it.log`.
 
 ### Recomeçar os testes do zero
 
