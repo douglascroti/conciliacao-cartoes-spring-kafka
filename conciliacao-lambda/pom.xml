@@ -18,20 +18,7 @@
         <start-class>br.estudo.conciliacao.lambda.LambdaApplication</start-class>
         <aws-lambda-java-core.version>1.4.0</aws-lambda-java-core.version>
         <aws-lambda-java-events.version>3.16.1</aws-lambda-java-events.version>
-        <aws-sdk.version>2.55.10</aws-sdk.version>
     </properties>
-
-    <dependencyManagement>
-        <dependencies>
-            <dependency>
-                <groupId>software.amazon.awssdk</groupId>
-                <artifactId>bom</artifactId>
-                <version>${aws-sdk.version}</version>
-                <type>pom</type>
-                <scope>import</scope>
-            </dependency>
-        </dependencies>
-    </dependencyManagement>
 
     <dependencies>
         <dependency>

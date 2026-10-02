@@ -1,0 +1,62 @@
+spring:
+  application:
+    name: conciliacao-batch
+  main:
+    banner-mode: off
+
+  datasource:
+    url: ${DB_URL:jdbc:postgresql://localhost:5432/conciliacao}
+    username: ${DB_USER:conciliacao}
+    password: ${DB_PASSWORD:conciliacao}
+    hikari:
+      # Uma conexão por job em paralelo, mais folga para o JobRepository e o health check.
+      maximum-pool-size: 5
+
+  batch:
+    job:
+      # Não executar jobs na subida: eles são lançados pelo consumer, um por arquivo recebido.
+      enabled: false
+    jdbc:
+      # As tabelas do Spring Batch são criadas pelo Flyway (V2), não pela aplicação.
+      initialize-schema: never
+
+  kafka:
+    # Dentro da rede Docker: kafka:9092 (3d). Rodando no host: localhost:9094.
+    bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:localhost:9094}
+    consumer:
+      group-id: conciliacao-batch
+      # Vale só na primeira vez que o grupo conecta; depois, ele continua do último offset confirmado.
+      auto-offset-reset: earliest
+      key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+      value-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+
+conciliacao:
+  s3:
+    endpoint: ${AWS_ENDPOINT_URL:http://localhost:4566}
+    regiao: ${AWS_REGION:us-east-1}
+    force-path-style: ${S3_FORCE_PATH_STYLE:true}
+  job:
+    tamanho-chunk: ${JOB_TAMANHO_CHUNK:1000}
+    execucoes-simultaneas: ${JOB_EXECUCOES_SIMULTANEAS:2}
+
+server:
+  # 8080 fica para o Kafka UI (3d).
+  port: ${SERVER_PORT:8081}
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics
+  endpoint:
+    health:
+      show-details: always
+
+logging:
+  file:
+    name: logs/batch.log
+  level:
+    root: WARN
+    br.estudo.conciliacao: INFO
+    # Início e fim da aplicação ("Started BatchApplication in ...").
+    org.springframework.boot.StartupInfoLogger: INFO

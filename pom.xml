@@ -34,6 +34,7 @@
         <spring-cloud.version>2025.1.3</spring-cloud.version>
         <!-- Mesma versão do <parent>; usada por plugins que precisam do spring-boot-maven-plugin. -->
         <spring-boot.version>4.0.8</spring-boot.version>
+        <aws-sdk.version>2.55.10</aws-sdk.version>
     </properties>
 
     <dependencyManagement>
@@ -43,6 +44,14 @@
                 <groupId>org.springframework.cloud</groupId>
                 <artifactId>spring-cloud-dependencies</artifactId>
                 <version>${spring-cloud.version}</version>
+                <type>pom</type>
+                <scope>import</scope>
+            </dependency>
+            <!-- BOM do AWS SDK v2: S3/DynamoDB na Lambda e S3 no Batch com a mesma versão. -->
+            <dependency>
+                <groupId>software.amazon.awssdk</groupId>
+                <artifactId>bom</artifactId>
+                <version>${aws-sdk.version}</version>
                 <type>pom</type>
                 <scope>import</scope>
             </dependency>

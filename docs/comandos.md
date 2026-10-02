@@ -270,6 +270,91 @@ Os cenários 1 a 4 da etapa 2 valem para os dois provedores. Diferenças com Dyn
 
 ---
 
+## Etapa 3 — Serviço Batch: evento do Kafka → job Spring Batch
+
+### Subir o serviço no host
+
+Com a infra no ar (`docker compose up -d --wait`):
+
+```powershell
+docker compose run --rm flyway                       # aplica migrations novas (V2: tabelas do Spring Batch)
+.\mvnw.cmd -pl conciliacao-batch -am package -DskipTests
+cd conciliacao-batch; java -jar target\conciliacao-batch-0.1.0-SNAPSHOT.jar
+```
+
+O log também vai para `conciliacao-batch\logs\batch.log`. Para acompanhar de outro terminal:
+
+```powershell
+Get-Content conciliacao-batch\logs\batch.log -Wait -Tail 20 -Encoding UTF8
+```
+
+Saúde do serviço (banco, disco) e métricas:
+
+```powershell
+curl.exe -s localhost:8081/actuator/health
+curl.exe -s localhost:8081/actuator/metrics/spring.batch.job   # 404 até o primeiro job desde a subida
+```
+
+Variáveis úteis: `JOB_TAMANHO_CHUNK` (padrão 1000), `JOB_EXECUCOES_SIMULTANEAS` (padrão 2),
+`SERVER_PORT` (padrão 8081). Ex.: `$env:JOB_TAMANHO_CHUNK='2'` antes do `java -jar`.
+
+### Primeira subida: ignorar eventos antigos
+
+O grupo `conciliacao-batch` começa do início do tópico (`earliest`). Se o tópico tem eventos de
+testes anteriores cujos arquivos já não existem no S3 (o LocalStack não guarda estado), posicione o
+grupo no fim **com o serviço parado**:
+
+```powershell
+docker exec kafka /opt/kafka/bin/kafka-consumer-groups.sh --bootstrap-server localhost:9092 --group conciliacao-batch --topic conciliacao.arquivo-recebido --reset-offsets --to-latest --execute
+```
+
+Situação do grupo (offset confirmado e atraso por partição):
+
+```powershell
+docker exec kafka /opt/kafka/bin/kafka-consumer-groups.sh --bootstrap-server localhost:9092 --group conciliacao-batch --describe
+```
+
+### Cenário 1 — arquivo enviado vira um job concluído
+
+```powershell
+docker exec localstack awslocal s3 cp /exemplos/conciliacao_20261001.csv s3://conciliacao/entrada/
+```
+
+No log: `Evento recebido` (thread do consumer), `Job iniciado`, `Chunk com N linhas` e
+`Job finalizado ... COMPLETED` (thread `job-N`). Se o arquivo já foi recebido antes, a Lambda o
+trata como duplicado e nenhum job é criado; use outro nome/data.
+
+### Cenário 2 — evento repetido não reprocessa
+
+Reenvia ao tópico o último evento de um arquivo, simulando entrega dupla (troque o nome):
+
+```powershell
+$msg = docker exec kafka /opt/kafka/bin/kafka-console-consumer.sh --bootstrap-server localhost:9092 --topic conciliacao.arquivo-recebido --from-beginning --formatter-property print.key=true --formatter-property key.separator='|' --timeout-ms 6000 2>$null | Select-String 'conciliacao_20261001.csv' | Select-Object -Last 1 | ForEach-Object Line
+$msg | docker exec -i kafka /opt/kafka/bin/kafka-console-producer.sh --bootstrap-server localhost:9092 --topic conciliacao.arquivo-recebido --reader-property parse.key=true --reader-property key.separator='|'
+```
+
+No log: `Evento duplicado: arquivo ... já foi processado`.
+
+### Cenário 3 — mensagem inválida não trava o consumer
+
+```powershell
+'teste|isto nao e json' | docker exec -i kafka /opt/kafka/bin/kafka-console-producer.sh --bootstrap-server localhost:9092 --topic conciliacao.arquivo-recebido --reader-property parse.key=true --reader-property key.separator='|'
+```
+
+Uma linha `ERROR` do `DefaultErrorHandler` (`maxAttempts=0`, sem retentativa) e o serviço segue `UP`.
+
+### JobRepository: execuções, steps e parâmetros
+
+```powershell
+docker exec postgres psql -U conciliacao -d conciliacao -c "select e.job_execution_id exec, e.status, e.start_time, e.end_time, s.read_count lidas, s.write_count gravadas, s.commit_count commits from batch_job_execution e join batch_step_execution s using (job_execution_id) order by 1 desc limit 10"
+docker exec postgres psql -U conciliacao -d conciliacao -c "select job_execution_id, parameter_name, parameter_value, identifying from batch_job_execution_params order by 1 desc limit 10"
+```
+
+> No Git Bash, prefixe os `docker exec` que têm caminhos (`/opt/kafka/...`, `/aws/lambda/...`) com
+> `MSYS_NO_PATHCONV=1`; senão o Git Bash converte o caminho para `C:/Program Files/Git/...`.
+
+---
+
 ## Diagnóstico — memória do Kafka
 
 O Kafka é uma aplicação Java; a memória tem três camadas: o container, a heap da JVM
