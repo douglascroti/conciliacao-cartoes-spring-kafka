@@ -1,20 +1,18 @@
-package br.estudo.conciliacao.lambda.infra;
+package br.estudo.conciliacao.lambda.idempotencia;
 
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
-import java.time.Instant;
 import java.time.LocalDate;
 import java.util.Optional;
 import java.util.UUID;
 
-import org.springframework.stereotype.Repository;
+import br.estudo.conciliacao.lambda.infra.ConexaoBanco;
 
 /**
- * Registro de idempotência dos arquivos recebidos (tabela {@code arquivo_recebido}).
+ * Registro de idempotência no PostgreSQL (tabela {@code arquivo_recebido}). Provedor padrão.
  */
-@Repository
-public class RegistroArquivos {
+public class RegistroIdempotenciaPostgres implements RegistroIdempotencia {
 
     /*
      * Checagem e gravação numa única instrução atômica: se (nome_arquivo, etag) já existe,
@@ -32,11 +30,11 @@ public class RegistroArquivos {
 
     private final ConexaoBanco conexaoBanco;
 
-    public RegistroArquivos(ConexaoBanco conexaoBanco) {
+    public RegistroIdempotenciaPostgres(ConexaoBanco conexaoBanco) {
         this.conexaoBanco = conexaoBanco;
     }
 
-    /** Registra o arquivo; vazio se ele já tinha sido recebido (duplicado). */
+    @Override
     public Optional<ArquivoRegistrado> registrar(String bucket, String chave, String nomeArquivo,
                                                  String etag, long tamanhoBytes, LocalDate dataReferencia) {
         try (PreparedStatement stmt = conexaoBanco.obter().prepareStatement(SQL_REGISTRAR)) {
@@ -52,6 +50,8 @@ public class RegistroArquivos {
                 }
                 return Optional.of(new ArquivoRegistrado(
                         rs.getObject("id", UUID.class),
+                        nomeArquivo,
+                        etag,
                         rs.getTimestamp("recebido_em").toInstant()));
             }
         } catch (SQLException e) {
@@ -59,16 +59,13 @@ public class RegistroArquivos {
         }
     }
 
-    /** Desfaz o registro, para que uma nova tentativa da Lambda possa processar o arquivo. */
-    public void remover(UUID id) {
+    @Override
+    public void remover(ArquivoRegistrado arquivo) {
         try (PreparedStatement stmt = conexaoBanco.obter().prepareStatement(SQL_REMOVER)) {
-            stmt.setObject(1, id);
+            stmt.setObject(1, arquivo.id());
             stmt.executeUpdate();
         } catch (SQLException e) {
-            throw new IllegalStateException("Falha ao remover registro do arquivo " + id, e);
+            throw new IllegalStateException("Falha ao remover registro do arquivo " + arquivo.id(), e);
         }
-    }
-
-    public record ArquivoRegistrado(UUID id, Instant recebidoEm) {
     }
 }

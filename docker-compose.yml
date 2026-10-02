@@ -20,6 +20,10 @@ services:
       POSTGRES_DB: ${POSTGRES_DB:-conciliacao}
       POSTGRES_USER: ${POSTGRES_USER:-conciliacao}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-conciliacao}
+      # Onde a Lambda guarda a idempotência: postgres (padrão) ou dynamodb. Lidas pelos scripts
+      # de deploy (repassa à Lambda) e de criação da tabela no DynamoDB.
+      IDEMPOTENCIA_PROVEDOR: ${IDEMPOTENCIA_PROVEDOR:-postgres}
+      IDEMPOTENCIA_TABELA_DYNAMO: ${IDEMPOTENCIA_TABELA_DYNAMO:-arquivo-recebido}
     volumes:
       # Necessário para o LocalStack criar os containers da Lambda.
       - /var/run/docker.sock:/var/run/docker.sock

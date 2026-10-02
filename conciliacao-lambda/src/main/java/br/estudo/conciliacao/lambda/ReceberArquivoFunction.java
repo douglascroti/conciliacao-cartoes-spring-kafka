@@ -15,10 +15,10 @@ import br.estudo.conciliacao.eventos.ArquivoRecebidoEvento;
 import br.estudo.conciliacao.lambda.config.RecebimentoProperties;
 import br.estudo.conciliacao.lambda.dominio.MotivoRejeicao;
 import br.estudo.conciliacao.lambda.dominio.ValidadorArquivo;
+import br.estudo.conciliacao.lambda.idempotencia.ArquivoRegistrado;
+import br.estudo.conciliacao.lambda.idempotencia.RegistroIdempotencia;
 import br.estudo.conciliacao.lambda.infra.ArmazenamentoArquivos;
 import br.estudo.conciliacao.lambda.infra.PublicadorEventos;
-import br.estudo.conciliacao.lambda.infra.RegistroArquivos;
-import br.estudo.conciliacao.lambda.infra.RegistroArquivos.ArquivoRegistrado;
 
 /**
  * A "função" da Lambda: um {@code Consumer<S3Event>} comum do Java. O Spring Cloud Function
@@ -32,13 +32,14 @@ public class ReceberArquivoFunction implements Consumer<S3Event> {
 
     private final ValidadorArquivo validador;
     private final ArmazenamentoArquivos armazenamento;
-    private final RegistroArquivos registro;
+    private final RegistroIdempotencia registro;
     private final PublicadorEventos publicador;
     private final String prefixoEntrada;
 
     // Injeção pelo construtor: o Spring cria os beans e os passa aqui (sem "new" espalhado).
+    // "registro" é a interface; a implementação (Postgres ou DynamoDB) vem de IdempotenciaConfig.
     public ReceberArquivoFunction(ValidadorArquivo validador, ArmazenamentoArquivos armazenamento,
-                                  RegistroArquivos registro, PublicadorEventos publicador,
+                                  RegistroIdempotencia registro, PublicadorEventos publicador,
                                   RecebimentoProperties props) {
         this.validador = validador;
         this.armazenamento = armazenamento;
@@ -100,7 +101,7 @@ public class ReceberArquivoFunction implements Consumer<S3Event> {
                     metadata.topic(), metadata.partition(), metadata.offset());
         } catch (RuntimeException e) {
             // Sem o evento, o registro impediria a retentativa de processar o arquivo: desfaz.
-            registro.remover(arquivo.id());
+            registro.remover(arquivo);
             throw e;
         }
     }

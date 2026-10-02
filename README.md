@@ -50,6 +50,7 @@ Este projeto implementa a etapa 3 de ponta a ponta, desde o recebimento do arqui
 flowchart LR
     A[Adquirente] -->|upload CSV| S3[(S3<br/>conciliacao/entrada)]
     S3 -->|ObjectCreated| L[Lambda<br/>Java 21 + Spring Cloud Function]
+    L -->|idempotência nome + ETag| ID[(PostgreSQL<br/>ou DynamoDB)]
     L -->|conciliacao.arquivo-recebido| K{{Kafka}}
     K --> C[Serviço de Conciliação<br/>Spring Boot]
     C -->|dispara| B[Job Spring Batch<br/>leitura em chunks]
@@ -78,7 +79,7 @@ A Lambda atua apenas como **gatilho**: o processamento pesado fica no batch, que
 | Linguagem | Java 21 |
 | Framework | Spring Boot 4, Spring Batch, Spring Kafka, Spring Cloud Function |
 | Mensageria | Apache Kafka (modo KRaft, sem ZooKeeper) |
-| Cloud (emulada localmente) | AWS S3 e AWS Lambda via LocalStack |
+| Cloud (emulada localmente) | AWS S3, Lambda e DynamoDB via LocalStack |
 | Banco de dados | PostgreSQL |
 | Build | Maven multi-módulo (com Maven Wrapper) |
 | Containers | Docker, Docker Compose, Dockerfiles multi-stage |
@@ -92,7 +93,7 @@ Os principais pontos de arquitetura:
 - **Lambda como gatilho, não como processador:** evita o limite de 15 minutos e mantém a função simples e barata.
 - **Spring Batch para alta volumetria:** processamento em chunks, restart a partir do ponto de falha via `JobRepository`, skip de linhas inválidas e tamanho de chunk configurável.
 - **Kafka para desacoplamento:** múltiplos consumidores podem reagir ao resultado da conciliação (agenda de recebíveis, relatórios, antifraude) sem acoplamento ao job.
-- **Idempotência na entrada:** o mesmo arquivo reenviado, ou o mesmo evento do S3 entregue duas vezes, não gera reprocessamento (nome + ETag com `UNIQUE` no PostgreSQL).
+- **Idempotência na entrada:** o mesmo arquivo reenviado, ou o mesmo evento do S3 entregue duas vezes, não gera reprocessamento. A chave é nome + ETag, gravada de forma atômica: `UNIQUE` + `ON CONFLICT` no PostgreSQL ou `PutItem` condicional no DynamoDB, escolhido por `IDEMPOTENCIA_PROVEDOR` sem recompilar.
 - **Arquivos inválidos não se perdem:** nome ou cabeçalho fora do layout movem o arquivo para `rejeitados/`, com o motivo em metadado.
 - **Cold start da Lambda em Java:** custo conhecido da JVM + Spring, mitigado na AWS real com **SnapStart**.
 
@@ -134,6 +135,9 @@ Os principais pontos de arquitetura:
 ```bash
 cp .env.example .env
 # edite o .env e informe seu LOCALSTACK_AUTH_TOKEN
+
+# opcional: onde a Lambda guarda a idempotência (postgres é o padrão)
+# IDEMPOTENCIA_PROVEDOR=dynamodb
 ```
 
 ### 2. Build
@@ -151,11 +155,11 @@ docker compose up -d --wait   # retorna quando todos os serviços estão saudáv
 ```
 
 Ao subir, o Flyway aplica as migrations no PostgreSQL, o `kafka-init` cria os tópicos e o
-LocalStack cria o bucket, publica a Lambda e liga a notificação do S3 a ela.
+LocalStack cria o bucket e a tabela do DynamoDB, publica a Lambda e liga a notificação do S3 a ela.
 
 | Serviço | Porta |
 | --- | --- |
-| LocalStack (S3, Lambda) | 4566 |
+| LocalStack (S3, Lambda, DynamoDB) | 4566 |
 | Kafka (containers na rede Docker) | `kafka:9092` |
 | Kafka (aplicações no host) | `localhost:9094` |
 | PostgreSQL | 5432 |

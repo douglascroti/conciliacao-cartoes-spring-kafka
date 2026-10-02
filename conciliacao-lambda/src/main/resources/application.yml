@@ -11,6 +11,10 @@ conciliacao:
     url: ${DB_URL:jdbc:postgresql://localhost:5432/conciliacao}
     usuario: ${DB_USER:conciliacao}
     senha: ${DB_PASSWORD:conciliacao}
+  idempotencia:
+    # postgres (padrão) ou dynamodb. Só os beans do provedor escolhido são criados (IdempotenciaConfig).
+    provedor: ${IDEMPOTENCIA_PROVEDOR:postgres}
+    tabela-dynamo: ${IDEMPOTENCIA_TABELA_DYNAMO:arquivo-recebido}
   s3:
     prefixo-entrada: entrada/
     prefixo-rejeitados: rejeitados/

@@ -8,7 +8,6 @@ import org.apache.kafka.common.serialization.StringSerializer;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
-import br.estudo.conciliacao.lambda.infra.ConexaoBanco;
 import software.amazon.awssdk.http.urlconnection.UrlConnectionHttpClient;
 import software.amazon.awssdk.services.s3.S3Client;
 
@@ -48,8 +47,5 @@ public class InfraConfig {
                 .build();
     }
 
-    @Bean(destroyMethod = "close")
-    ConexaoBanco conexaoBanco(RecebimentoProperties props) {
-        return new ConexaoBanco(props.banco().url(), props.banco().usuario(), props.banco().senha());
-    }
+    // O cliente do registro de idempotência (Postgres ou DynamoDB) fica em IdempotenciaConfig.
 }

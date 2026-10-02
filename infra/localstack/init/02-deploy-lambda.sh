@@ -24,6 +24,8 @@ cat > /tmp/lambda-env.json <<EOF
     "DB_URL": "jdbc:postgresql://postgres:5432/${POSTGRES_DB}",
     "DB_USER": "${POSTGRES_USER}",
     "DB_PASSWORD": "${POSTGRES_PASSWORD}",
+    "IDEMPOTENCIA_PROVEDOR": "${IDEMPOTENCIA_PROVEDOR:-postgres}",
+    "IDEMPOTENCIA_TABELA_DYNAMO": "${IDEMPOTENCIA_TABELA_DYNAMO:-arquivo-recebido}",
     "S3_FORCE_PATH_STYLE": "true",
     "JAVA_TOOL_OPTIONS": "-XX:+TieredCompilation -XX:TieredStopAtLevel=1"
   }

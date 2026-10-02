@@ -218,6 +218,58 @@ docker compose restart localstack     # bucket recriado vazio e Lambda republica
 
 ---
 
+## Idempotência: PostgreSQL ou DynamoDB
+
+A Lambda guarda o registro de idempotência (nome + ETag) no provedor definido por
+`IDEMPOTENCIA_PROVEDOR`: `postgres` (padrão) ou `dynamodb` (no próprio LocalStack, sem container novo).
+A tabela `arquivo-recebido` do DynamoDB é criada sempre pelo init (`03-criar-tabela-dynamo.sh`).
+
+### Trocar o provedor
+
+No `.env`:
+
+```
+IDEMPOTENCIA_PROVEDOR=dynamodb
+```
+
+```powershell
+docker compose up -d --wait           # recria o LocalStack, que republica a Lambda com a variável nova
+```
+
+Para testar sem editar o `.env` (a variável do terminal tem prioridade sobre o `.env`):
+
+```powershell
+$env:IDEMPOTENCIA_PROVEDOR='dynamodb'; docker compose up -d --wait; Remove-Item Env:IDEMPOTENCIA_PROVEDOR
+```
+
+No bash: `IDEMPOTENCIA_PROVEDOR=dynamodb docker compose up -d --wait`.
+
+### Conferir
+
+```powershell
+# provedor configurado na Lambda
+docker exec localstack awslocal lambda get-function-configuration --function-name receber-arquivo-conciliacao --query "Environment.Variables.IDEMPOTENCIA_PROVEDOR" --output text
+
+# tabela e itens no DynamoDB
+docker exec localstack awslocal dynamodb describe-table --table-name arquivo-recebido --query "Table.[TableStatus,KeySchema]"
+docker exec localstack awslocal dynamodb scan --table-name arquivo-recebido --query "Items[].[nomeArquivo.S,etag.S,id.S,recebidoEm.S]" --output table
+```
+
+No log da Lambda, a primeira linha de cada cold start mostra o provedor:
+`Idempotência no PostgreSQL` ou `Idempotência no DynamoDB (tabela arquivo-recebido)`.
+Com DynamoDB não aparece `Conexão com o banco aberta`: nenhuma conexão JDBC é criada.
+
+Os cenários 1 a 4 da etapa 2 valem para os dois provedores. Diferenças com DynamoDB:
+
+- o registro está no DynamoDB, não em `arquivo_recebido` (essa linha passa a ser criada pelo job Batch);
+- o LocalStack não guarda estado, então a idempotência zera a cada recriação do container.
+
+> Para medir cold start, use um container limpo e um upload por vez. Forçar vários cold starts
+> seguidos (`update-function-configuration` em loop) pode deixar o LocalStack preso com
+> `timed out during startup`; nesse caso, `docker compose up -d --wait --force-recreate localstack`.
+
+---
+
 ## Diagnóstico — memória do Kafka
 
 O Kafka é uma aplicação Java; a memória tem três camadas: o container, a heap da JVM
