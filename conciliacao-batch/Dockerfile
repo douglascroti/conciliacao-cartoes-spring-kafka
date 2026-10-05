@@ -5,7 +5,7 @@
 # (o docker compose já faz isso: serviço conciliacao-batch)
 
 # ---- 1) Build: JDK + Maven Wrapper ----
-FROM eclipse-temurin:21.0.12.1_1-jdk-noble AS build
+FROM eclipse-temurin:24.0.2_12-jdk-noble AS build
 WORKDIR /src
 
 # POMs e wrapper primeiro: mudar só o código Java não invalida estas camadas.
@@ -32,7 +32,7 @@ RUN java -Djarmode=tools -jar conciliacao-batch/target/conciliacao-batch-*.jar \
     extract --layers --launcher --destination /extraido
 
 # ---- 2) Execução: só o JRE ----
-FROM eclipse-temurin:21.0.12.1_1-jre-alpine
+FROM eclipse-temurin:24.0.2_12-jre-alpine
 WORKDIR /app
 
 # Usuário sem privilégios: o processo não roda como root dentro do container.
