@@ -43,6 +43,7 @@ O projeto reproduz um cenário real do mercado de meios de pagamento: todo dia a
 - [Garantias de processamento](#-garantias-de-processamento)
 - [Testes](#-testes)
 - [CI/CD e segurança da cadeia](#-cicd-e-segurança-da-cadeia)
+- [Infraestrutura como código (Terraform)](#-infraestrutura-como-código-terraform)
 - [Desempenho](#-desempenho)
 - [Formato do arquivo de conciliação](#-formato-do-arquivo-de-conciliação)
 - [Segurança e PCI-DSS](#-segurança-e-pci-dss)
@@ -147,8 +148,11 @@ Os principais pontos de arquitetura:
 ├── conciliacao-lambda/            # Lambda: valida o arquivo e publica no Kafka
 ├── conciliacao-batch/             # Consumer Kafka + job Spring Batch (com Dockerfile multi-stage)
 ├── gerador-dados/                 # Gera o arquivo da adquirente, as autorizações e o gabarito para testes de volume
-├── infra/                         # Init (bucket, tabela DynamoDB, Lambda, tópicos), migrations, exemplos,
-│                                  # Prometheus (coleta e alertas), Grafana (datasources e dashboard) e Tempo
+├── infra/
+│   ├── terraform/                 # Infraestrutura AWS como código: módulos + ambiente local (LocalStack)
+│   ├── postgres/, kafka/          # Migrations (Flyway) e criação dos tópicos
+│   ├── prometheus/, grafana/, tempo/  # Observabilidade: coleta, alertas, dashboard e traces
+│   └── exemplos/                  # Arquivos de exemplo (válidos e inválidos)
 ├── scripts/                       # Deploy da Lambda, carga de massa, envio, conferência e medição
 ├── .github/                       # workflow de CI/CD (testes, Trivy, publicação) e Dependabot
 ├── LICENSE                        # licença MIT
@@ -189,14 +193,19 @@ Gera, entre outros, o JAR da Lambda (`conciliacao-lambda/target/conciliacao-lamb
 
 ### 3. Subir o ambiente
 
-```bash
-docker compose up -d --wait   # retorna quando todos os serviços estão saudáveis
+```powershell
+docker compose up -d --wait            # retorna quando todos os serviços estão saudáveis
+.\scripts\terraform.ps1 apply          # cria a infraestrutura AWS no LocalStack (confirme com "yes")
 ```
 
-Ao subir, o Flyway aplica as migrations no PostgreSQL, o `kafka-init` cria os tópicos, o
-LocalStack cria o bucket e a tabela do DynamoDB, publica a Lambda e liga a notificação do S3 a ela,
-e o serviço de conciliação (imagem construída pelo `conciliacao-batch/Dockerfile`) passa a consumir
-os eventos. Na primeira vez o build da imagem leva cerca de 2 minutos.
+Ao subir, o Flyway aplica as migrations no PostgreSQL, o `kafka-init` cria os tópicos e o serviço
+de conciliação (imagem construída pelo `conciliacao-batch/Dockerfile`) passa a consumir os eventos.
+Na primeira vez o build da imagem leva cerca de 2 minutos.
+
+O LocalStack sobe **vazio**: a infraestrutura AWS (bucket, tabela do DynamoDB, papel IAM, Lambda,
+logs e a notificação do S3) é criada pelo **Terraform** em `infra/terraform`, que roda num container
+(não precisa instalar). O LocalStack não guarda estado: depois de recriá-lo, rode o `apply` de novo.
+Detalhes em [Infraestrutura como código](#-infraestrutura-como-código-terraform).
 
 | Serviço | Endereço |
 | --- | --- |
@@ -213,7 +222,7 @@ os eventos. Na primeira vez o build da imagem leva cerca de 2 minutos.
 Depois de alterar o código:
 
 ```powershell
-.\scripts\deploy-lambda.ps1                          # Lambda: recompila e republica no LocalStack
+.\scripts\deploy-lambda.ps1                          # Lambda: recompila e republica (terraform apply)
 docker compose up -d --build conciliacao-batch       # serviço de conciliação: reconstrói a imagem
 ```
 
@@ -283,7 +292,8 @@ Spring Batch (`batch_job_execution`, `batch_step_execution`).
 
 | Script | Para quê |
 | --- | --- |
-| `deploy-lambda.ps1` | Recompila e republica a Lambda no LocalStack |
+| `terraform.ps1` | Terraform do ambiente local em container: `plan`, `apply`, `output`, `destroy`, `validate`, `fmt` |
+| `deploy-lambda.ps1` | Recompila a Lambda e republica no LocalStack (via `terraform apply`) |
 | `carregar-autorizacoes.ps1` | Carga em massa das autorizações geradas (`COPY`), repetível |
 | `enviar-arquivo.ps1` | Envia um arquivo grande para `s3://conciliacao/entrada/` |
 | `conferir-gabarito.ps1` | Compara o resultado do job com o gabarito do gerador; sai com código 1 se algo não bater |
@@ -490,6 +500,42 @@ docker pull ghcr.io/douglascroti/conciliacao-batch:latest
 
 ---
 
+## 🏗 Infraestrutura como código (Terraform)
+
+A infraestrutura AWS é descrita em Terraform (`infra/terraform`) e aplicada no **LocalStack**, sem
+conta AWS e sem custo. O Terraform é declarativo: descreve o estado desejado, e o `plan` mostra a
+diferença para o que existe antes de qualquer mudança.
+
+```
+infra/terraform/
+├── modulos/
+│   ├── armazenamento/        # bucket S3 + tabela DynamoDB de idempotência
+│   └── lambda-recebimento/   # papel IAM, Lambda, logs, permissão e notificação do S3
+└── ambientes/
+    └── local/                # provider apontado para o LocalStack + composição dos módulos
+```
+
+| Recurso | Configuração |
+| --- | --- |
+| Bucket `conciliacao` | Acesso público bloqueado, criptografia em repouso, versionamento; `rejeitados/` expira em 90 dias e versões antigas em 30 |
+| Tabela `arquivo-recebido` | Chave `nomeArquivo` + `etag`, sob demanda, criptografada, com recuperação para um ponto no tempo |
+| Papel IAM da Lambda | **Menor privilégio:** só as 5 operações que o código faz, cada uma no prefixo em que acontece (ler e apagar em `entrada/`, gravar em `rejeitados/`, `PutItem`/`DeleteItem` na tabela) |
+| Lambda | Java 21, 1 GB, código atualizado só quando o hash do JAR muda; configuração (Kafka, banco, provedor de idempotência) vinda do `.env` |
+| Logs | Grupo criado pelo Terraform com retenção de 14 dias (sem isso, ficariam para sempre) |
+| Gatilho | Notificação do S3 para uploads em `entrada/`, com permissão restrita a este bucket |
+
+```powershell
+.\scripts\terraform.ps1 plan       # o que vai mudar
+.\scripts\terraform.ps1 apply      # aplica (pede confirmação)
+.\scripts\terraform.ps1 output     # nomes dos recursos criados
+```
+
+O estado (`terraform.tfstate`) fica em arquivo local, fora do git; o `.terraform.lock.hcl`, que fixa a
+versão do provider, é versionado. Kafka e PostgreSQL continuam no docker-compose: numa conta real,
+seriam Amazon MSK e RDS.
+
+---
+
 ## 📈 Desempenho
 
 Teste com **1 milhão de linhas** gerado pelo `gerador-dados`, passando pelo fluxo completo
@@ -576,7 +622,9 @@ Mesmo sendo um ambiente de estudo, o projeto segue práticas exigidas em sistema
 | --- | --- |
 | Maven falha com `PKIX path building failed` | Antivírus com inspeção de HTTPS (AVG, Avast etc.) reassinando os certificados. Faça o Java usar os certificados do Windows: variável de usuário `MAVEN_OPTS=-Djavax.net.ssl.trustStoreType=Windows-ROOT` e um terminal novo |
 | `docker compose up` reclama de `LOCALSTACK_AUTH_TOKEN` | Falta o token no `.env` (gratuito no plano Hobby do LocalStack) |
-| A Lambda não é publicada ao subir o ambiente | O JAR ainda não existia: rode `.\mvnw.cmd package` e depois `.\scripts\deploy-lambda.ps1` |
+| Upload no S3 não dispara nada / `NoSuchBucket` | O LocalStack sobe vazio e não guarda estado: rode `.\scripts\terraform.ps1 apply` (depois de cada recriação do LocalStack) |
+| `terraform.ps1` diz que o JAR da Lambda não foi encontrado | Gere antes com `.\mvnw.cmd package` |
+| Terraform: `Automatically removing from Terraform State ... couldn't find resource` | Normal depois de recriar o LocalStack: o estado lembrava recursos que sumiram, e o `apply` os recria |
 | `Unable to rename ... .jar.original` no build (Windows) | O serviço está rodando pelo `java -jar` e o Windows trava o JAR em uso: pare-o antes de compilar |
 | No Git Bash, `docker exec ... /opt/kafka/...` procura `C:/Program Files/Git/opt/...` | O Git Bash converte caminhos que começam com `/`: prefixe o comando com `MSYS_NO_PATHCONV=1` (ou use o PowerShell) |
 | Reenvio de um arquivo não gera job | É a idempotência funcionando (mesmo nome + ETag). Para testes: `.\scripts\liberar-reenvio.ps1 <arquivo>` |

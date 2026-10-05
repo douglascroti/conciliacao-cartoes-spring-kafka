@@ -81,7 +81,7 @@ docker compose down; docker compose up -d --wait
 | --- | --- | --- |
 | Mensagens e tópicos do Kafka | Sim | volume `kafka-data` |
 | Dados do PostgreSQL | Sim | volume `postgres-data` |
-| Bucket, objetos e Lambda no LocalStack | **Não** | o LocalStack não guarda estado; os scripts em `infra/localstack/init` recriam tudo |
+| Bucket, objetos e Lambda no LocalStack | **Não** | o LocalStack não guarda estado; `.\scripts\terraform.ps1 apply` recria a infraestrutura (os objetos se perdem) |
 
 Para apagar tudo, inclusive os volumes:
 
@@ -102,17 +102,16 @@ docker stats --no-stream
 ### Ordem para subir do zero
 
 ```powershell
-.\mvnw.cmd package              # gera conciliacao-lambda/target/conciliacao-lambda-*-aws.jar
-docker compose up -d --wait     # o LocalStack publica a Lambda ao iniciar (infra/localstack/init/02-deploy-lambda.sh)
+.\mvnw.cmd package                # gera conciliacao-lambda/target/conciliacao-lambda-*-aws.jar
+docker compose up -d --wait       # o LocalStack sobe vazio
+.\scripts\terraform.ps1 apply     # bucket, tabela, IAM, Lambda, logs e notificação (Terraform, fase 9)
 ```
 
-Se o LocalStack subir antes do JAR existir, o log avisa e basta publicar depois:
+Sempre que alterar o código da Lambda:
 
 ```powershell
-.\scripts\deploy-lambda.ps1     # recompila o módulo da Lambda e publica (cria ou atualiza)
+.\scripts\deploy-lambda.ps1     # recompila o módulo da Lambda e roda o terraform apply
 ```
-
-Use o mesmo script sempre que alterar o código da Lambda.
 
 ### Conferir a Lambda e a migration
 
@@ -240,7 +239,7 @@ O Kafka apaga os tópicos em duas fases: o disco só é liberado ~1 min depois (
 
 A Lambda guarda o registro de idempotência (nome + ETag) no provedor definido por
 `IDEMPOTENCIA_PROVEDOR`: `postgres` (padrão) ou `dynamodb` (no próprio LocalStack, sem container novo).
-A tabela `arquivo-recebido` do DynamoDB é criada sempre pelo init (`03-criar-tabela-dynamo.sh`).
+A tabela `arquivo-recebido` do DynamoDB é criada sempre pelo Terraform (`infra/terraform`), qualquer que seja o provedor.
 
 ### Trocar o provedor
 
@@ -251,16 +250,14 @@ IDEMPOTENCIA_PROVEDOR=dynamodb
 ```
 
 ```powershell
-docker compose up -d --wait           # recria o LocalStack, que republica a Lambda com a variável nova
+.\scripts\terraform.ps1 apply         # atualiza a variável de ambiente da Lambda (plan mostra só essa mudança)
 ```
 
 Para testar sem editar o `.env` (a variável do terminal tem prioridade sobre o `.env`):
 
 ```powershell
-$env:IDEMPOTENCIA_PROVEDOR='dynamodb'; docker compose up -d --wait; Remove-Item Env:IDEMPOTENCIA_PROVEDOR
+$env:IDEMPOTENCIA_PROVEDOR='dynamodb'; .\scripts\terraform.ps1 apply -auto-approve; Remove-Item Env:IDEMPOTENCIA_PROVEDOR
 ```
-
-No bash: `IDEMPOTENCIA_PROVEDOR=dynamodb docker compose up -d --wait`.
 
 ### Conferir
 

@@ -1,5 +1,7 @@
-# Infra local da conciliação: LocalStack (S3 + Lambda), Kafka (KRaft) e PostgreSQL.
-# Subir:  docker compose up -d
+# Infra local da conciliação: LocalStack (S3, Lambda, DynamoDB), Kafka (KRaft), PostgreSQL, serviço de
+# conciliação e observabilidade.
+# Subir:  docker compose up -d --wait
+#         .\scripts\terraform.ps1 apply   (cria bucket, tabela, IAM e Lambda no LocalStack)
 # Status: docker compose ps
 name: conciliacao
 
@@ -16,25 +18,15 @@ services:
       # Os containers que o LocalStack cria para executar a Lambda entram nesta rede,
       # e assim conseguem falar com o Kafka pelo nome "kafka:9092".
       LAMBDA_DOCKER_NETWORK: conciliacao-net
-      # Lidas pelo script de deploy para configurar a conexão da Lambda com o Postgres.
-      POSTGRES_DB: ${POSTGRES_DB:-conciliacao}
-      POSTGRES_USER: ${POSTGRES_USER:-conciliacao}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-conciliacao}
-      # Onde a Lambda guarda a idempotência: postgres (padrão) ou dynamodb. Lidas pelos scripts
-      # de deploy (repassa à Lambda) e de criação da tabela no DynamoDB.
-      IDEMPOTENCIA_PROVEDOR: ${IDEMPOTENCIA_PROVEDOR:-postgres}
-      IDEMPOTENCIA_TABELA_DYNAMO: ${IDEMPOTENCIA_TABELA_DYNAMO:-arquivo-recebido}
+    # O LocalStack sobe vazio: bucket, tabela, Lambda e notificação são criados pelo Terraform
+    # (infra/terraform), com .\scripts\terraform.ps1 apply.
     volumes:
       # Necessário para o LocalStack criar os containers da Lambda.
       - /var/run/docker.sock:/var/run/docker.sock
-      # Scripts executados quando o LocalStack fica pronto (bucket, deploy da Lambda).
-      - ./infra/localstack/init:/etc/localstack/init/ready.d:ro
-      # JAR da Lambda gerado pelo Maven (deploy feito pelo script 02-deploy-lambda.sh).
-      - ./conciliacao-lambda/target:/opt/lambda:ro
       # Arquivos de exemplo para upload com awslocal.
       - ./infra/exemplos:/exemplos:ro
     healthcheck:
-      test: ["CMD-SHELL", "curl -sf localhost:4566/_localstack/init/ready | grep -q '\"completed\": true'"]
+      test: ["CMD-SHELL", "curl -sf localhost:4566/_localstack/health | grep -q '\"s3\": \"\\(available\\|running\\)\"'"]
       interval: 5s
       timeout: 5s
       retries: 60

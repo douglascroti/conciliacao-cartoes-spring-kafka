@@ -27,9 +27,9 @@ $topicos = @('conciliacao.arquivo-recebido', 'conciliacao.resultado', 'conciliac
 Write-Host 'Limpeza do ambiente de desenvolvimento:'
 Write-Host '  1. Para o servico conciliacao-batch (ninguem grava durante a limpeza)'
 Write-Host "  2. Postgres: TRUNCATE $($tabelas -join ', ') e reinicia as sequences do Spring Batch"
-Write-Host '  3. DynamoDB: recria a tabela arquivo-recebido vazia'
+Write-Host '  3. DynamoDB: apaga a tabela arquivo-recebido (recriada vazia pelo terraform apply)'
 Write-Host '  4. S3: esvazia o bucket conciliacao (entrada/ e rejeitados/)'
-Write-Host '  5. Lambda: apaga os logs no CloudWatch do LocalStack'
+Write-Host '  5. Lambda: apaga os logs no CloudWatch do LocalStack e roda o terraform apply (recria tabela e log group)'
 Write-Host "  6. Kafka: apaga e recria os topicos ($($topicos -join ', ')) e o consumer group conciliacao-batch"
 Write-Host ('  7. Apaga conciliacao-batch\logs' + $(if ($ManterMassa) { '' } else { ' e a pasta massa\' }))
 Write-Host '  8. Sobe o conciliacao-batch de novo'
@@ -54,10 +54,9 @@ Passo 'Limpando o Postgres' {
     $sql | docker exec -i postgres psql -U conciliacao -d conciliacao -v ON_ERROR_STOP=1 -q
 }
 
-Passo 'Recriando a tabela do DynamoDB' {
+Passo 'Apagando a tabela do DynamoDB (o Terraform recria vazia no fim)' {
     docker exec localstack awslocal dynamodb delete-table --table-name arquivo-recebido 2>&1 | Out-Null
     docker exec localstack awslocal dynamodb wait table-not-exists --table-name arquivo-recebido
-    docker exec localstack bash /etc/localstack/init/ready.d/03-criar-tabela-dynamo.sh | Out-Null
 }
 
 Passo 'Esvaziando o bucket do S3' { docker exec localstack awslocal s3 rm s3://conciliacao --recursive --only-show-errors }
@@ -65,6 +64,11 @@ Passo 'Esvaziando o bucket do S3' { docker exec localstack awslocal s3 rm s3://c
 Passo 'Apagando os logs da Lambda' {
     docker exec localstack awslocal logs delete-log-group --log-group-name /aws/lambda/receber-arquivo-conciliacao 2>&1 | Out-Null
     $global:LASTEXITCODE = 0   # o grupo de logs pode nao existir (nenhuma invocacao ainda)
+}
+
+# Tabela e log group sao recursos do Terraform: o apply recria o que foi apagado acima, vazio.
+Passo 'Recriando tabela do DynamoDB e logs da Lambda (terraform apply)' {
+    & "$PSScriptRoot\terraform.ps1" apply -auto-approve -no-color | Select-String 'Apply complete'
 }
 
 Passo 'Apagando o consumer group e os topicos do Kafka' {

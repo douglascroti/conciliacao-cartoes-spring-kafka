@@ -13,3 +13,11 @@ docs/adr/
 docs/prompts/
 docs/progresso.md
 docs/notas/
+
+# Terraform: provider baixado e estado (o estado pode conter segredos). O .terraform.lock.hcl,
+# que fixa as versões dos providers, é versionado.
+.terraform/
+*.tfstate
+*.tfstate.*
+*.tfplan
+crash.log
