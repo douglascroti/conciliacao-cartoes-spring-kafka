@@ -27,6 +27,11 @@ updates:
     schedule:
       interval: weekly
       day: monday
+    ignore:
+      # Java fica no 21 (LTS do projeto): só atualizações dentro do 21. Trocar de versão do Java é
+      # decisão de projeto (pom, CI, Lambda), não um bump automático.
+      - dependency-name: eclipse-temurin
+        update-types: [version-update:semver-major]
 
   # Imagens do docker-compose (LocalStack, Kafka, PostgreSQL, Prometheus, Grafana, Tempo...).
   - package-ecosystem: docker-compose
