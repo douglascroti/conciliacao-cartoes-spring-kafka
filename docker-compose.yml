@@ -8,7 +8,7 @@ name: conciliacao
 services:
 
   localstack:
-    image: localstack/localstack:2026.08.5
+    image: localstack/localstack:2026.9.0
     container_name: localstack
     ports:
       - "4566:4566"
@@ -193,7 +193,7 @@ services:
 
   # Coleta e guarda as métricas do serviço batch (/actuator/prometheus). http://localhost:9090
   prometheus:
-    image: prom/prometheus:v3.5.0
+    image: prom/prometheus:v3.15.0
     container_name: prometheus
     command:
       - --config.file=/etc/prometheus/prometheus.yml
@@ -214,7 +214,7 @@ services:
 
   # Guarda os traces (spans) enviados pelo serviço batch via OTLP. Consulta pelo Grafana.
   tempo:
-    image: grafana/tempo:2.8.2
+    image: grafana/tempo:3.1.0
     container_name: tempo
     command: ["-config.file=/etc/tempo/tempo.yaml"]
     ports:
@@ -235,7 +235,7 @@ services:
   # Datasource e dashboard vêm de infra/grafana (provisionamento): sobem prontos, sem configurar pela tela.
   # Sem login, só leitura; para editar, entre como admin / admin (o Grafana pede para trocar a senha, dá para pular).
   grafana:
-    image: grafana/grafana:12.2.0
+    image: grafana/grafana:13.2.3
     container_name: grafana
     depends_on:
       - prometheus
