@@ -25,6 +25,7 @@ import com.amazonaws.services.lambda.runtime.events.models.s3.S3EventNotificatio
 import com.amazonaws.services.lambda.runtime.events.models.s3.S3EventNotification.S3ObjectEntity;
 
 import br.estudo.conciliacao.teste.Containers;
+import br.estudo.conciliacao.teste.ExigeLocalStack;
 import br.estudo.conciliacao.teste.LeitorTopico;
 import br.estudo.conciliacao.teste.Projeto;
 import software.amazon.awssdk.core.sync.RequestBody;
@@ -35,6 +36,7 @@ import software.amazon.awssdk.services.s3.model.NoSuchKeyException;
  * A função da Lambda com o contexto Spring de verdade: S3 (LocalStack), Kafka e PostgreSQL em
  * containers. O evento do S3 é montado à mão, como o LocalStack/AWS o entregaria.
  */
+@ExigeLocalStack
 @SpringBootTest
 class ReceberArquivoFunctionIT {
 

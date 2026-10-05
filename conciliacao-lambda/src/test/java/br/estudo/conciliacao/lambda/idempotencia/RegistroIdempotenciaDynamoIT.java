@@ -12,6 +12,7 @@ import org.junit.jupiter.api.Test;
 import org.testcontainers.localstack.LocalStackContainer;
 
 import br.estudo.conciliacao.teste.Containers;
+import br.estudo.conciliacao.teste.ExigeLocalStack;
 import software.amazon.awssdk.auth.credentials.AwsBasicCredentials;
 import software.amazon.awssdk.auth.credentials.StaticCredentialsProvider;
 import software.amazon.awssdk.http.urlconnection.UrlConnectionHttpClient;
@@ -22,7 +23,8 @@ import software.amazon.awssdk.services.dynamodb.model.BillingMode;
 import software.amazon.awssdk.services.dynamodb.model.KeyType;
 import software.amazon.awssdk.services.dynamodb.model.ScalarAttributeType;
 
-/** Idempotência no DynamoDB do LocalStack, com a mesma tabela do init (03-criar-tabela-dynamo.sh). */
+/** Idempotência no DynamoDB do LocalStack, com a mesma chave da tabela criada pelo Terraform (infra/terraform). */
+@ExigeLocalStack
 class RegistroIdempotenciaDynamoIT {
 
     private static final String TABELA = "arquivo-recebido-teste";

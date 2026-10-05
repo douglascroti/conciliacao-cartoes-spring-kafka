@@ -15,10 +15,15 @@ distributor:
         http:
           endpoint: 0.0.0.0:4318
 
-compactor:
+# No Tempo 3, a compactação e a retenção ficam com o backend worker (o "compactor" do Tempo 2 não
+# existe mais).
+backend_worker:
   compaction:
     # Ambiente de estudo: 2 dias de traces bastam e limitam o disco.
     block_retention: 48h
+
+usage_report:
+  reporting_enabled: false
 
 storage:
   trace:

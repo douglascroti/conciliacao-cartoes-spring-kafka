@@ -27,6 +27,8 @@ public final class Containers {
     public static final List<String> TOPICOS = List.of(
             "conciliacao.arquivo-recebido", "conciliacao.resultado", "conciliacao.erro");
 
+    // As imagens abaixo devem ser as mesmas do docker-compose.yml. O Dependabot atualiza só o
+    // compose: ao aceitar um PR dele com imagem nova, atualize aqui também.
     private static PostgreSQLContainer postgres;
     private static KafkaContainer kafka;
     private static LocalStackContainer localstack;
@@ -69,15 +71,16 @@ public final class Containers {
     }
 
     /**
-     * LocalStack com S3 e DynamoDB. Sem token (variável de ambiente ou .env), o teste que chamou é
-     * pulado (não falha): {@code Assumptions} marca o teste como "ignorado" com o motivo.
+     * LocalStack com S3 e DynamoDB. A classe de teste deve ter {@link ExigeLocalStack}, que a pula
+     * inteira quando não há token; o {@code Assumptions} abaixo é só a rede de segurança para quem
+     * esquecer a anotação.
      */
     public static synchronized LocalStackContainer localstack() {
         if (localstack == null) {
             String token = Projeto.tokenLocalStack().orElse(null);
             Assumptions.assumeTrue(token != null,
                     "LOCALSTACK_AUTH_TOKEN não definido (nem no ambiente nem no .env): testes com LocalStack pulados");
-            localstack = new LocalStackContainer("localstack/localstack:2026.08.5")
+            localstack = new LocalStackContainer("localstack/localstack:2026.9.0")
                     .withServices("s3", "dynamodb")
                     .withEnv("LOCALSTACK_AUTH_TOKEN", token);
             localstack.start();

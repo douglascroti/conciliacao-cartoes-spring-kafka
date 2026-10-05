@@ -616,7 +616,7 @@ curl -s localhost:3200/api/v2/traces/<traceId> | grep -o '"name":"[^"]*"' | sort
 **Alertas:** http://localhost:9090/alerts. Validar a sintaxe depois de editar as regras:
 
 ```bash
-MSYS_NO_PATHCONV=1 docker run --rm -v "$(pwd -W)/infra/prometheus:/cfg" --entrypoint promtool prom/prometheus:v3.5.0 check rules /cfg/alertas.yml
+MSYS_NO_PATHCONV=1 docker run --rm -v "$(pwd -W)/infra/prometheus:/cfg" --entrypoint promtool prom/prometheus:v3.15.0 check rules /cfg/alertas.yml
 docker compose restart prometheus     # recarrega as regras (a API /-/reload não está habilitada)
 ```
 

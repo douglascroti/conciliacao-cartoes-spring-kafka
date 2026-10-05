@@ -26,6 +26,7 @@ import org.testcontainers.postgresql.PostgreSQLContainer;
 import br.estudo.conciliacao.eventos.ArquivoRecebidoEvento;
 import br.estudo.conciliacao.eventos.Topicos;
 import br.estudo.conciliacao.teste.Containers;
+import br.estudo.conciliacao.teste.ExigeLocalStack;
 import br.estudo.conciliacao.teste.LeitorTopico;
 import br.estudo.conciliacao.teste.Projeto;
 import software.amazon.awssdk.core.sync.RequestBody;
@@ -36,6 +37,7 @@ import tools.jackson.databind.json.JsonMapper;
  * O serviço inteiro, como em produção: o evento chega pelo Kafka, o job lê o arquivo do S3
  * (LocalStack), concilia com as autorizações no PostgreSQL e publica resultados e erros no Kafka.
  */
+@ExigeLocalStack
 @SpringBootTest(properties = "logging.file.name=target/batch-it.log")
 class ConciliacaoJobIT {
 
