@@ -8,6 +8,7 @@
 ![Docker](https://img.shields.io/badge/Docker-Compose-2496ED?logo=docker)
 ![PostgreSQL](https://img.shields.io/badge/PostgreSQL-18-4169E1?logo=postgresql)
 ![Testcontainers](https://img.shields.io/badge/Testcontainers-JUnit%205-2496ED?logo=testcontainers)
+![OpenTelemetry](https://img.shields.io/badge/OpenTelemetry-Prometheus%20%7C%20Grafana%20%7C%20Tempo-F46800?logo=opentelemetry)
 ![Status](https://img.shields.io/badge/status-em%20desenvolvimento-yellow)
 ![Licença](https://img.shields.io/badge/licen%C3%A7a-MIT-blue)
 
@@ -20,7 +21,8 @@ O projeto reproduz um cenário real do mercado de meios de pagamento: todo dia a
 - **Fluxo completo orientado a eventos:** S3 → Lambda (Java 21) → Kafka → Spring Batch → PostgreSQL e Kafka, rodando 100% local com Docker e LocalStack, em um único `docker compose up`.
 - **Volume real:** **1 milhão de linhas em ~103 s**, com ~260 MB de memória, e o resultado conferido número a número contra um gabarito gerado junto com a massa de dados.
 - **Nenhum arquivo perdido nem processado duas vezes:** idempotência em três camadas, restart do último chunk confirmado, recuperação automática depois de uma queda e retomada da leitura do S3. Cada garantia foi testada **provocando a falha** correspondente.
-- **61 testes automatizados:** 49 unitários e 12 de integração com Testcontainers (LocalStack, PostgreSQL e Kafka de verdade).
+- **Observável de ponta a ponta:** métricas de negócio no Prometheus, dashboard provisionado no Grafana, alertas e **um único trace por arquivo**, da Lambda até cada chunk do job, com o `traceId` em todas as linhas de log.
+- **67 testes automatizados:** 55 unitários e 12 de integração com Testcontainers (LocalStack, PostgreSQL e Kafka de verdade).
 - **Práticas de sistemas de cartões:** o PAN nunca entra em resultados, eventos ou logs, e dinheiro é sempre `BigDecimal`.
 
 ---
@@ -34,6 +36,7 @@ O projeto reproduz um cenário real do mercado de meios de pagamento: todo dia a
 - [Estrutura do repositório](#-estrutura-do-repositório)
 - [Como executar](#-como-executar)
 - [Operação](#-operação)
+- [Observabilidade](#-observabilidade)
 - [Eventos Kafka](#-eventos-kafka)
 - [Garantias de processamento](#-garantias-de-processamento)
 - [Testes](#-testes)
@@ -102,6 +105,7 @@ A Lambda atua apenas como **gatilho**: o processamento pesado fica no batch, que
 | Build | Maven multi-módulo (com Maven Wrapper) |
 | Containers | Docker, Docker Compose, Dockerfile multi-stage |
 | Operação | Spring Boot Actuator (health e métricas) |
+| Observabilidade | Micrometer, Prometheus (métricas e alertas), Grafana, OpenTelemetry + Grafana Tempo (traces) |
 
 ---
 
@@ -121,6 +125,7 @@ Os principais pontos de arquitetura:
 - **Restart do ponto de falha:** se o job cai no meio, ele continua do último chunk confirmado. Uma queda do serviço é recuperada automaticamente na subida; uma falha comum pode ser reiniciada por `POST /execucoes/{id}/reiniciar`.
 - **Arquivos inválidos não se perdem:** nome ou cabeçalho fora do layout movem o arquivo para `rejeitados/`, com o motivo em metadado.
 - **Cold start da Lambda em Java:** no LocalStack, a inicialização (JVM + Spring) mede de 2,0 a 2,5 s e a primeira invocação de 300 a 600 ms; com o container já quente, de 10 a 70 ms. Para reduzir: só o compilador JIT C1 (`-XX:TieredStopAtLevel=1`), cliente Kafka puro em vez do Spring Kafka e JAR enxuto, sem WebFlux/Netty nem compressão nativa. Na AWS real, a mitigação seguinte é o **SnapStart**, que restaura a JVM já inicializada a partir de um snapshot; a conexão JDBC é revalidada antes do uso, o que cobre a conexão "morta" vinda do snapshot.
+- **Observabilidade como código:** regras de alerta, datasources e o dashboard do Grafana são arquivos versionados em `infra/`; o ambiente sobe pronto. Métricas de negócio só contam depois do commit do chunk, então um rollback não infla os números. O trace atravessa Lambda → Kafka → thread do job, e o nível de detalhe é o chunk (não a linha), para não gerar milhões de spans.
 - **Idempotência em PostgreSQL ou DynamoDB:** os dois provedores dão o mesmo resultado e o mesmo cold start no ambiente local. O ganho do DynamoDB aparece na AWS real, onde muitas Lambdas em paralelo esgotariam as conexões do Postgres (a alternativa seria o RDS Proxy).
 
 ---
@@ -129,7 +134,7 @@ Os principais pontos de arquitetura:
 
 ```
 .
-├── docker-compose.yml             # LocalStack, Kafka, PostgreSQL, serviço de conciliação e Kafka UI
+├── docker-compose.yml             # LocalStack, Kafka, PostgreSQL, serviço de conciliação, Kafka UI e observabilidade
 ├── .env.example                   # variáveis de ambiente necessárias
 ├── pom.xml                        # POM pai (multi-módulo)
 ├── mvnw, mvnw.cmd, .mvn/          # Maven Wrapper (não precisa instalar o Maven)
@@ -138,7 +143,8 @@ Os principais pontos de arquitetura:
 ├── conciliacao-lambda/            # Lambda: valida o arquivo e publica no Kafka
 ├── conciliacao-batch/             # Consumer Kafka + job Spring Batch (com Dockerfile multi-stage)
 ├── gerador-dados/                 # Gera o arquivo da adquirente, as autorizações e o gabarito para testes de volume
-├── infra/                         # Init (bucket, tabela DynamoDB, Lambda, tópicos), migrations e exemplos
+├── infra/                         # Init (bucket, tabela DynamoDB, Lambda, tópicos), migrations, exemplos,
+│                                  # Prometheus (coleta e alertas), Grafana (datasources e dashboard) e Tempo
 ├── scripts/                       # Deploy da Lambda, carga de massa, envio, conferência e medição
 ├── LICENSE                        # licença MIT
 └── docs/
@@ -191,6 +197,9 @@ os eventos. Na primeira vez o build da imagem leva cerca de 2 minutos.
 | --- | --- |
 | Kafka UI (tópicos, mensagens, consumer groups) | http://localhost:8080 |
 | Serviço de conciliação (Actuator) | http://localhost:8081/actuator/health |
+| Grafana (dashboard, traces, alertas), em português | http://localhost:3000 |
+| Prometheus (métricas, alertas) | http://localhost:9090 |
+| Tempo (API de traces; OTLP em `4318`) | http://localhost:3200 |
 | LocalStack (S3, Lambda, DynamoDB) | `localhost:4566` |
 | Kafka (containers na rede Docker) | `kafka:9092` |
 | Kafka (aplicações no host) | `localhost:9094` |
@@ -248,6 +257,7 @@ e restart) estão em [`docs/comandos.md`](docs/comandos.md).
 | --- | --- |
 | `GET /actuator/health` | Saúde do serviço e da conexão com o banco (usado pelo healthcheck do container) |
 | `GET /actuator/metrics/spring.batch.job` | Métricas dos jobs executados |
+| `GET /actuator/prometheus` | Todas as métricas no formato do Prometheus (coletadas a cada 15 s) |
 | `POST /execucoes/{id}/reiniciar` | Reinicia uma execução que falhou, do último chunk confirmado (`202` com o id da nova execução) |
 
 **Acompanhamento de um arquivo**, na tabela `arquivo_recebido`: `RECEBIDO` (Lambda) → `PROCESSANDO`
@@ -275,6 +285,93 @@ Spring Batch (`batch_job_execution`, `batch_step_execution`).
 | `medir-desempenho.ps1` | Processa o arquivo com um tamanho de chunk e mede duração, memória e CPU |
 | `liberar-reenvio.ps1` | Só para testes: permite reprocessar um arquivo já recebido |
 | `limpar-ambiente.ps1` | Só para desenvolvimento: zera banco, DynamoDB, bucket e tópicos (`-Executar`; sem ele, só mostra o que faria) |
+
+---
+
+## 📊 Observabilidade
+
+Os três sinais têm papéis diferentes: **métricas** mostram *quanto* e *quão rápido*, **traces**
+mostram *por onde* um arquivo passou e *onde* o tempo foi gasto, e os **logs** dão o detalhe, ligados
+ao trace pelo `traceId`.
+
+```mermaid
+flowchart LR
+    L[Lambda] -->|header traceparent| K{{Kafka}}
+    K --> B[Serviço de conciliação]
+    B -->|/actuator/prometheus<br/>coleta a cada 15 s| P[(Prometheus<br/>métricas + alertas)]
+    B -->|spans via OTLP| T[(Grafana Tempo<br/>traces)]
+    P --> G[Grafana]
+    T --> G
+```
+
+### Métricas e dashboard
+
+O Grafana sobe com o datasource e o dashboard **Conciliação de cartões** já provisionados
+(`infra/grafana`), em três faixas:
+
+| Faixa | Painéis |
+| --- | --- |
+| Negócio | Arquivos concluídos e com falha, jobs em execução, arquivos na fila, linhas inválidas, taxa de conciliação, resultados por segundo e por status |
+| Spring Batch e Kafka | Duração do job e dos steps, tempo médio de escrita por chunk, lag do consumer por partição |
+| Recursos | Heap da JVM × máximo, CPU e pausas de GC, conexões do pool (ativas, ociosas, pendentes) |
+
+Métricas de negócio criadas no serviço (além das que já vêm do Spring Boot, do Spring Batch e do cliente Kafka):
+
+| Métrica | Rótulos | Significado |
+| --- | --- | --- |
+| `conciliacao_resultados_total` | `status` | Transações conciliadas, por resultado |
+| `conciliacao_linhas_invalidas_total` | | Linhas puladas por estarem fora do layout ou das regras |
+| `conciliacao_arquivos_total` | `status` (`CONCLUIDO`, `FALHA`) | Arquivos processados, por status final |
+
+Elas só são incrementadas **depois do commit do chunk**: se o chunk é desfeito e reprocessado, nada é contado duas vezes.
+
+### Traces
+
+Cada arquivo gera **um trace**, da Lambda ao último chunk:
+
+```
+conciliacao.arquivo-recebido process     consumer Kafka (continua o traceparent enviado pela Lambda)
+└─ spring.batch.job.launch.count         lançamento do job
+   └─ spring.batch.job                   o job, já na thread própria
+      ├─ spring.batch.step               conciliarLinhas
+      │  └─ spring.batch.chunk.write     um por chunk: consulta, gravação e publicação
+      └─ spring.batch.step               registrarAusentes
+         └─ spring.batch.chunk.write
+```
+
+Para achar o trace de um arquivo, copie o `traceId` do log (da Lambda, `Publicado: ... traceId=...`,
+ou do serviço, `[traceId-spanId]` em cada linha) e cole no Grafana em **Explorar → Tempo**.
+
+- A Lambda **não usa o SDK do OpenTelemetry** (JAR e cold start preservados): ela só gera o
+  `traceparent` W3C e o envia no header do evento. Por isso o Tempo mostra a raiz do trace como
+  "faltando"; o `traceId` no log da Lambda liga as duas pontas.
+- O detalhe vai até o **chunk**: um arquivo de 1 milhão de linhas gera cerca de mil spans. Spans por
+  linha (leitura e processamento de cada item) estão desligados; seriam 2 milhões.
+- Requisições ao `/actuator` (coleta do Prometheus e healthcheck) não geram traces.
+- Amostragem de 100%: o volume é de um trace por arquivo.
+
+### Alertas
+
+Regras em `infra/prometheus/alertas.yml`, visíveis em http://localhost:9090/alerts e no Grafana
+(**Alertas → Regras de alerta**):
+
+| Alerta | Severidade | Dispara quando |
+| --- | --- | --- |
+| `ArquivoComFalha` | crítica | Algum arquivo terminou em `FALHA` nos últimos 10 min |
+| `ServicoBatchFora` | crítica | O Prometheus não consegue coletar o serviço há 1 min |
+| `LinhasInvalidasAcimaDoNormal` | aviso | Mais de 0,8% de linhas inválidas em 15 min (antes do limite de 1% que derruba o arquivo) |
+| `ArquivosParadosNaFila` | aviso | Arquivos esperando thread livre há 10 min |
+| `ConsumerKafkaAtrasado` | aviso | Eventos de arquivo sem consumo há 5 min |
+| `MemoriaHeapAlta` | aviso | Heap acima de 90% por 5 min |
+| `PoolDeConexoesEsgotado` | aviso | Threads esperando conexão com o banco há 2 min |
+
+Neste ambiente não há Alertmanager: os alertas aparecem, mas não são enviados (e-mail, Slack etc.).
+`ArquivoComFalha` e `ServicoBatchFora` foram testados provocando a falha (arquivo com linhas
+inválidas acima do limite e serviço parado).
+
+**Custo:** com métricas e tracing ligados, o teste de 1 milhão de linhas levou 99 s, contra 103 s
+antes da observabilidade: dentro da variação entre rodadas. Prometheus, Grafana e Tempo somam
+cerca de 250 MB de memória.
 
 ---
 
@@ -317,15 +414,16 @@ de um controle de posse das execuções (lease/heartbeat) para não "recuperar" 
 ## 🧪 Testes
 
 ```bash
-./mvnw package     # 49 testes unitários, sem Docker (~15 s, sem o clean)
+./mvnw package     # 55 testes unitários, sem Docker (~15 s, sem o clean)
 ./mvnw verify      # + 12 testes de integração com containers de verdade (~90 s com o clean)
 ```
 
 **Unitários** (`*Test.java`): regras de conciliação (incluindo `BigDecimal` com escalas diferentes e a
 chave NSU + código), validação do layout do arquivo, limite percentual de linhas inválidas, retomada
 da leitura do S3 depois de uma queda de conexão (sem perder nem repetir bytes), seleção do provedor de
-idempotência, gerador de massa (gabarito e reprodutibilidade) e a garantia de que nenhuma mensagem de
-erro carrega o conteúdo da linha.
+idempotência, gerador de massa (gabarito e reprodutibilidade), a garantia de que nenhuma mensagem de
+erro carrega o conteúdo da linha, métricas que só contam após o commit (rollback não conta) e o
+formato W3C do `traceparent`.
 
 **Integração** (`*IT.java`), com [Testcontainers](https://testcontainers.com) e as **mesmas imagens do
 docker-compose** (LocalStack, PostgreSQL 18 e Kafka 4); o PostgreSQL recebe as migrations reais de
@@ -436,6 +534,9 @@ Mesmo sendo um ambiente de estudo, o projeto segue práticas exigidas em sistema
 | Log `Leitura de s3://... interrompida ...; retomando` | Normal em arquivos grandes: a conexão com o S3 caiu e a leitura continuou do mesmo byte |
 | Rodar o serviço pela IDE e pelo container ao mesmo tempo | Não faça: as duas instâncias dividiriam as partições. `docker compose stop conciliacao-batch` antes |
 | Dados de testes antigos atrapalhando | `.\scripts\limpar-ambiente.ps1 -Executar` |
+| No Grafana não aparece a opção de editar o dashboard | O acesso sem login é só leitura: entre como `admin` / `admin`. Para versionar a mudança, exporte o JSON para `infra/grafana/dashboards/` |
+| Painéis do Grafana vazios com o serviço rodando pela IDE | O Prometheus coleta `conciliacao-batch:8081` (container). Troque o alvo em `infra/prometheus/prometheus.yml` por `host.docker.internal:8081` |
+| Trace no Tempo com "missing root span" | Esperado: a raiz é o span da Lambda, que só gera o `traceparent` e não exporta spans |
 
 ---
 
@@ -447,7 +548,7 @@ Mesmo sendo um ambiente de estudo, o projeto segue práticas exigidas em sistema
 - [x] **Fase 4:** gerador de massa de dados e teste com 1 milhão de linhas
 - [x] **Fase 5:** documentação
 - [x] **Fase 6:** testes automatizados com JUnit 5 e Testcontainers
-- [ ] **Fase 7:** observabilidade com OpenTelemetry, Prometheus e Grafana
+- [x] **Fase 7:** observabilidade com OpenTelemetry, Prometheus, Grafana e Tempo
 - [ ] **Fase 8:** pipeline CI/CD com GitHub Actions e scan de segurança (Trivy)
 - [ ] **Fase 9:** deploy na AWS com Terraform
 

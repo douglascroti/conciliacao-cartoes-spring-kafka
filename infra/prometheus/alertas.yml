@@ -1,0 +1,82 @@
+# Regras de alerta avaliadas pelo Prometheus a cada 15 s.
+# Ver em http://localhost:9090/alerts ou no Grafana (Alertas > Regras de alerta, "gerenciadas pela fonte de dados").
+# Estados: inactive → pending (condição verdadeira, esperando o "for") → firing.
+# Sem Alertmanager neste ambiente: os alertas ficam visíveis, mas não são enviados (e-mail, Slack...).
+
+groups:
+  - name: conciliacao-negocio
+    rules:
+      - alert: ArquivoComFalha
+        # Qualquer arquivo terminado em FALHA nos últimos 10 min. Sem "for": falha é para ver na hora.
+        expr: sum(increase(conciliacao_arquivos_total{status="FALHA"}[10m])) > 0
+        labels:
+          severity: critica
+        annotations:
+          summary: Arquivo de conciliação terminou com falha
+          description: >-
+            {{ $value | printf "%.0f" }} arquivo(s) com status FALHA nos últimos 10 minutos.
+            Motivo em arquivo_recebido.mensagem_erro; retomar com POST /execucoes/{id}/reiniciar.
+
+      - alert: LinhasInvalidasAcimaDoNormal
+        # Aviso antes do limite que derruba o arquivo (1% por padrão): a adquirente pode ter mudado o layout.
+        # 0,8%, e não 0,5%: a massa do gerador tem 0,5% de inválidas, e o teste de volume não deve disparar.
+        expr: |
+          sum(increase(conciliacao_linhas_invalidas_total[15m]))
+            / (sum(increase(conciliacao_resultados_total{status!="AUSENTE_NO_ARQUIVO"}[15m]))
+               + sum(increase(conciliacao_linhas_invalidas_total[15m])))
+            > 0.008
+        labels:
+          severity: aviso
+        annotations:
+          summary: Muitas linhas inválidas nos arquivos recebidos
+          description: '{{ $value | humanizePercentage }} das linhas lidas nos últimos 15 minutos foram inválidas.'
+
+      - alert: ArquivosParadosNaFila
+        # Jobs esperando thread livre por 10 min: chegam mais arquivos do que o serviço processa.
+        expr: sum(executor_queued_tasks{name="executorJobs"}) > 0
+        for: 10m
+        labels:
+          severity: aviso
+        annotations:
+          summary: Arquivos esperando processamento há mais de 10 minutos
+          description: '{{ $value | printf "%.0f" }} arquivo(s) na fila. Avaliar JOB_EXECUCOES_SIMULTANEAS ou mais instâncias.'
+
+      - alert: ConsumerKafkaAtrasado
+        # Os jobs rodam em outra thread, então o consumer só lê e agenda: lag parado indica consumer travado.
+        expr: sum(kafka_consumer_fetch_manager_records_lag{topic="conciliacao.arquivo-recebido"}) > 0
+        for: 5m
+        labels:
+          severity: aviso
+        annotations:
+          summary: Eventos de arquivo recebido sem consumo há 5 minutos
+          description: '{{ $value | printf "%.0f" }} evento(s) aguardando em conciliacao.arquivo-recebido.'
+
+  - name: conciliacao-servico
+    rules:
+      - alert: ServicoBatchFora
+        # A coleta falhou: container parado, travado ou reiniciando em loop.
+        expr: up{job="conciliacao-batch"} == 0
+        for: 1m
+        labels:
+          severity: critica
+        annotations:
+          summary: Serviço conciliacao-batch não responde
+          description: O Prometheus não consegue coletar /actuator/prometheus há mais de 1 minuto.
+
+      - alert: MemoriaHeapAlta
+        expr: sum(jvm_memory_used_bytes{area="heap"}) / sum(jvm_memory_max_bytes{area="heap"}) > 0.9
+        for: 5m
+        labels:
+          severity: aviso
+        annotations:
+          summary: Heap da JVM acima de 90% por 5 minutos
+          description: 'Uso do heap: {{ $value | humanizePercentage }}. Risco de OutOfMemoryError (o container reinicia).'
+
+      - alert: PoolDeConexoesEsgotado
+        expr: sum(hikaricp_connections_pending) > 0
+        for: 2m
+        labels:
+          severity: aviso
+        annotations:
+          summary: Threads esperando conexão com o PostgreSQL
+          description: '{{ $value | printf "%.0f" }} thread(s) aguardando o pool (máximo de 5 conexões).'

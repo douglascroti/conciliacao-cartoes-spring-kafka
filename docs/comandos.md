@@ -583,6 +583,52 @@ docker exec postgres psql -U conciliacao -d conciliacao -c "select numero_linha,
 
 ---
 
+## Etapa 7 — Observabilidade (Prometheus, Grafana, Tempo)
+
+Endereços: Grafana http://localhost:3000 (sem login = leitura; `admin`/`admin` para editar),
+Prometheus http://localhost:9090, Tempo http://localhost:3200.
+
+**Métricas** (o endpoint e a mesma consulta no Prometheus):
+
+```powershell
+(Invoke-WebRequest -UseBasicParsing http://localhost:8081/actuator/prometheus).Content -split "`n" | Select-String '^conciliacao_'
+(Invoke-WebRequest -UseBasicParsing 'http://localhost:9090/api/v1/query?query=sum%20by%20(status)%20(conciliacao_resultados_total)').Content
+```
+
+Conferir com o banco (devem bater, a menos que o container tenha reiniciado e zerado os contadores):
+
+```powershell
+docker exec postgres psql -U conciliacao -d conciliacao -c "select status, count(*) from resultado_conciliacao group by 1"
+```
+
+**Coleta saudável:** Prometheus → Status → Target health (os dois alvos `UP`).
+
+**Trace de um arquivo:** copie o `traceId` do log e cole no Grafana em Explorar → Tempo.
+
+```powershell
+docker logs --since 5m conciliacao-batch | Select-String "Evento recebido"      # [traceId-spanId] na linha
+docker exec localstack awslocal logs filter-log-events --log-group-name /aws/lambda/receber-arquivo-conciliacao --filter-pattern traceId --query 'events[].message' --output text
+```
+
+Ou pela API do Tempo (lista os spans):
+
+```bash
+curl -s localhost:3200/api/v2/traces/<traceId> | grep -o '"name":"[^"]*"' | sort | uniq -c
+```
+
+**Alertas:** http://localhost:9090/alerts. Validar a sintaxe depois de editar as regras:
+
+```bash
+MSYS_NO_PATHCONV=1 docker run --rm -v "$(pwd -W)/infra/prometheus:/cfg" --entrypoint promtool prom/prometheus:v3.5.0 check rules /cfg/alertas.yml
+docker compose restart prometheus     # recarrega as regras (a API /-/reload não está habilitada)
+```
+
+Provocar `ArquivoComFalha`: arquivo com mais de 100 linhas inválidas e acima de 1% (ex.: 5 válidas e
+300 com valor negativo), enviado com `.\scripts\enviar-arquivo.ps1`. Provocar `ServicoBatchFora`:
+`docker stop conciliacao-batch`, esperar ~1,5 min, `docker start conciliacao-batch`.
+
+---
+
 ## Diagnóstico — memória do Kafka
 
 O Kafka é uma aplicação Java; a memória tem três camadas: o container, a heap da JVM
