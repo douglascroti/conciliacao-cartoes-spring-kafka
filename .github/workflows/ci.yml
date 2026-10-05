@@ -20,9 +20,12 @@ concurrency:
 
 jobs:
   testes:
-    name: Build e testes
+    name: Build, testes e scan do repositório
     runs-on: ubuntu-24.04
     timeout-minutes: 30
+    permissions:
+      contents: read
+      security-events: write   # enviar o relatório do Trivy para a aba Security
     steps:
       - uses: actions/checkout@v7
 
@@ -70,3 +73,96 @@ jobs:
             **/target/failsafe-reports/
           retention-days: 14
           if-no-files-found: ignore
+
+      # ---- Segurança do repositório (Trivy) ----
+      # Roda depois do build de propósito: o Trivy resolve as dependências dos pom.xml pelo ~/.m2 já
+      # populado. Sem isso ele consulta o Maven Central para cada POM e leva bloqueio por excesso (429).
+      # Varre dependências (CVEs), segredos commitados por engano e configuração (Dockerfile, compose).
+
+      # 1) Relatório completo, todas as severidades, para a aba Security do GitHub. Nunca falha.
+      - name: Trivy — relatório do repositório
+        if: ${{ !cancelled() }}
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          scan-type: fs
+          scan-ref: .
+          scanners: vuln,secret,misconfig
+          skip-dirs: massa
+          format: sarif
+          output: trivy-repositorio.sarif
+          exit-code: '0'
+
+      - name: Enviar relatório do repositório
+        if: ${{ !cancelled() && hashFiles('trivy-repositorio.sarif') != '' }}
+        uses: github/codeql-action/upload-sarif@v4
+        with:
+          sarif_file: trivy-repositorio.sarif
+          category: trivy-repositorio
+
+      # 2) Barreira: falha só com CVE CRITICAL que já tem versão corrigida (ADR 0013). CVE sem
+      #    correção não depende de nós; o resto fica visível no relatório acima.
+      - name: Trivy — barreira de CVEs críticos (dependências)
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          scan-type: fs
+          scan-ref: .
+          scanners: vuln
+          skip-dirs: massa
+          severity: CRITICAL
+          ignore-unfixed: true
+          format: table
+          exit-code: '1'
+          # O banco de vulnerabilidades já foi baixado no passo anterior.
+          skip-setup-trivy: true
+
+  imagem:
+    name: Imagem Docker e scan
+    needs: testes
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      security-events: write
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: docker/setup-buildx-action@v4
+
+      # Mesma imagem do docker-compose (Dockerfile multi-stage). load: fica no Docker do runner para
+      # o Trivy escanear. O cache de camadas (type=gha) evita refazer as dependências a cada execução.
+      - name: Build da imagem
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          file: conciliacao-batch/Dockerfile
+          tags: conciliacao-batch:ci
+          load: true
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Trivy — relatório da imagem
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          scan-type: image
+          image-ref: conciliacao-batch:ci
+          format: sarif
+          output: trivy-imagem.sarif
+          exit-code: '0'
+
+      - name: Enviar relatório da imagem
+        if: ${{ !cancelled() && hashFiles('trivy-imagem.sarif') != '' }}
+        uses: github/codeql-action/upload-sarif@v4
+        with:
+          sarif_file: trivy-imagem.sarif
+          category: trivy-imagem
+
+      - name: Trivy — barreira de CVEs críticos (imagem)
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          scan-type: image
+          image-ref: conciliacao-batch:ci
+          severity: CRITICAL
+          ignore-unfixed: true
+          format: table
+          exit-code: '1'
+          skip-setup-trivy: true
