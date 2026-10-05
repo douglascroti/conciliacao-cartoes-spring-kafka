@@ -1,0 +1,20 @@
+# Exceções do Trivy: riscos conhecidos e aceitos, cada um com o motivo. Revisar ao levar a
+# infraestrutura para uma conta AWS real (ADR 0014). Uma exceção nova precisa de motivo aqui.
+
+# ---- Infraestrutura (infra/terraform), ambiente local no LocalStack ----
+
+# Criptografia com chave gerenciada pela AWS (SSE-S3, SSE do DynamoDB e padrão do CloudWatch), não
+# com chave KMS própria (CMK). Os dados já são criptografados em repouso; a CMK acrescenta controle
+# de quem usa a chave, rotação e auditoria, exigência do PCI-DSS para dados de cartão numa conta real.
+# Aqui o bucket recebe só PAN mascarado e o ambiente é local; primeira mudança para produção.
+AWS-0132
+AWS-0017
+AWS-0025
+
+# X-Ray na Lambda: o rastreamento é feito com OpenTelemetry (traceparent no evento Kafka, Grafana
+# Tempo; ADR 0012). Ligar o X-Ray criaria um segundo sistema de tracing, desconectado do primeiro.
+AWS-0066
+
+# Log de acesso do bucket: exige um segundo bucket só para os logs. Numa conta real, o CloudTrail
+# com eventos de dados do S3 cobre a auditoria de quem leu ou gravou cada arquivo.
+AWS-0089

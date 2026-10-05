@@ -11,6 +11,7 @@
 ![OpenTelemetry](https://img.shields.io/badge/OpenTelemetry-Prometheus%20%7C%20Grafana%20%7C%20Tempo-F46800?logo=opentelemetry)
 [![CI](https://github.com/douglascroti/conciliacao-cartoes-spring-kafka/actions/workflows/ci.yml/badge.svg)](https://github.com/douglascroti/conciliacao-cartoes-spring-kafka/actions/workflows/ci.yml)
 ![Trivy](https://img.shields.io/badge/Trivy-scan%20no%20CI-1904DA?logo=aqua)
+![Terraform](https://img.shields.io/badge/Terraform-IaC-844FBA?logo=terraform)
 ![Status](https://img.shields.io/badge/status-em%20desenvolvimento-yellow)
 ![Licença](https://img.shields.io/badge/licen%C3%A7a-MIT-blue)
 
@@ -20,7 +21,8 @@ O projeto reproduz um cenário real do mercado de meios de pagamento: todo dia a
 
 ### ⚡ Em 30 segundos
 
-- **Fluxo completo orientado a eventos:** S3 → Lambda (Java 21) → Kafka → Spring Batch → PostgreSQL e Kafka, rodando 100% local com Docker e LocalStack, em um único `docker compose up`.
+- **Fluxo completo orientado a eventos:** S3 → Lambda (Java 21) → Kafka → Spring Batch → PostgreSQL e Kafka, rodando 100% local com Docker e LocalStack: `docker compose up` e um `terraform apply`.
+- **Pronto para produção no processo:** infraestrutura AWS em **Terraform** (IAM de menor privilégio, criptografia, ciclo de vida), CI no GitHub Actions com **Trivy** barrando CVE crítico e imagem publicada no ghcr.io.
 - **Volume real:** **1 milhão de linhas em ~103 s**, com ~260 MB de memória, e o resultado conferido número a número contra um gabarito gerado junto com a massa de dados.
 - **Nenhum arquivo perdido nem processado duas vezes:** idempotência em três camadas, restart do último chunk confirmado, recuperação automática depois de uma queda e retomada da leitura do S3. Cada garantia foi testada **provocando a falha** correspondente.
 - **Observável de ponta a ponta:** métricas de negócio no Prometheus, dashboard provisionado no Grafana, alertas e **um único trace por arquivo**, da Lambda até cada chunk do job, com o `traceId` em todas as linhas de log.
@@ -109,6 +111,7 @@ A Lambda atua apenas como **gatilho**: o processamento pesado fica no batch, que
 | Build | Maven multi-módulo (com Maven Wrapper) |
 | Containers | Docker, Docker Compose, Dockerfile multi-stage |
 | CI/CD | GitHub Actions, Trivy (CVEs, segredos e configuração), GitHub Container Registry, Dependabot |
+| Infraestrutura como código | Terraform (módulos + ambiente local), aplicado no LocalStack |
 | Operação | Spring Boot Actuator (health e métricas) |
 | Observabilidade | Micrometer, Prometheus (métricas e alertas), Grafana, OpenTelemetry + Grafana Tempo (traces) |
 
@@ -534,6 +537,25 @@ O estado (`terraform.tfstate`) fica em arquivo local, fora do git; o `.terraform
 versão do provider, é versionado. Kafka e PostgreSQL continuam no docker-compose: numa conta real,
 seriam Amazon MSK e RDS.
 
+**No CI:** `terraform fmt -check` e `validate` a cada push, e o Trivy analisa os `.tf` em busca de
+configuração insegura. Os achados aceitos para o ambiente local (criptografia com chave KMS própria,
+X-Ray e log de acesso do bucket) estão no [`.trivyignore`](.trivyignore), cada um com o motivo.
+
+**Limite do LocalStack:** ele não impõe IAM neste plano. As permissões do DynamoDB e dos logs foram
+conferidas com o simulador de políticas; as regras do S3 por prefixo ficam para validar numa conta real.
+
+**Para uma conta AWS real**, o que muda:
+
+| Tema | Mudança |
+| --- | --- |
+| Provider e credenciais | Sem endpoints do LocalStack; SSO local e **OIDC no GitHub Actions** (sem chave de acesso guardada) |
+| Estado | Backend `s3` com trava (`use_lockfile`), bucket do estado versionado e criptografado |
+| Kafka e banco | Amazon MSK e RDS PostgreSQL em sub-redes privadas; Lambda na VPC; senha no Secrets Manager |
+| Serviço de conciliação | Imagem do ghcr.io (ou ECR) em ECS Fargate |
+| Criptografia e auditoria | Chave KMS própria com rotação (exigência PCI-DSS) e CloudTrail com eventos de dados do S3; saem do `.trivyignore` |
+| Lambda | SnapStart para o cold start; política IAM validada com o IAM Access Analyzer |
+| Pipeline | `terraform plan` em pull request e `apply` com aprovação manual |
+
 ---
 
 ## 📈 Desempenho
@@ -647,7 +669,7 @@ Mesmo sendo um ambiente de estudo, o projeto segue práticas exigidas em sistema
 - [x] **Fase 6:** testes automatizados com JUnit 5 e Testcontainers
 - [x] **Fase 7:** observabilidade com OpenTelemetry, Prometheus, Grafana e Tempo
 - [x] **Fase 8:** pipeline CI/CD com GitHub Actions, scan de segurança (Trivy) e imagem no ghcr.io
-- [ ] **Fase 9:** deploy na AWS com Terraform
+- [x] **Fase 9:** infraestrutura AWS como código com Terraform (aplicada no LocalStack, com roteiro para uma conta real)
 
 ---
 

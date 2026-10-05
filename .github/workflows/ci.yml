@@ -88,6 +88,7 @@ jobs:
           scan-ref: .
           scanners: vuln,secret,misconfig
           skip-dirs: massa
+          trivyignores: .trivyignore
           format: sarif
           output: trivy-repositorio.sarif
           exit-code: '0'
@@ -108,12 +109,49 @@ jobs:
           scan-ref: .
           scanners: vuln
           skip-dirs: massa
+          trivyignores: .trivyignore
           severity: CRITICAL
           ignore-unfixed: true
           format: table
           exit-code: '1'
           # O banco de vulnerabilidades já foi baixado no passo anterior.
           skip-setup-trivy: true
+
+  # Infraestrutura como código: formatação e validação (sintaxe, referências entre recursos e tipos).
+  # O apply é validado localmente contra o LocalStack (ADR 0014); a configuração insegura é coberta
+  # pelo Trivy do job de testes, que também varre os arquivos .tf.
+  terraform:
+    name: Terraform (fmt e validate)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    env:
+      # Provider AWS (~100 MB) guardado entre execuções.
+      TF_PLUGIN_CACHE_DIR: ${{ github.workspace }}/.terraform-plugins
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: hashicorp/setup-terraform@v4
+        with:
+          terraform_version: 1.16.5
+          terraform_wrapper: false
+
+      - name: Cache do provider
+        uses: actions/cache@v6
+        with:
+          path: .terraform-plugins
+          key: terraform-${{ hashFiles('infra/terraform/**/.terraform.lock.hcl') }}
+
+      - name: Formatação
+        run: |
+          mkdir -p "$TF_PLUGIN_CACHE_DIR"
+          terraform -chdir=infra/terraform fmt -check -recursive -diff
+
+      # -backend=false: valida sem estado e sem LocalStack; o provider vem do .terraform.lock.hcl.
+      - name: Validação do ambiente local
+        working-directory: infra/terraform/ambientes/local
+        run: |
+          terraform init -backend=false -input=false
+          terraform validate
 
   imagem:
     name: Imagem Docker, scan e publicação
@@ -146,6 +184,7 @@ jobs:
         with:
           scan-type: image
           image-ref: conciliacao-batch:ci
+          trivyignores: .trivyignore
           format: sarif
           output: trivy-imagem.sarif
           exit-code: '0'
@@ -162,6 +201,7 @@ jobs:
         with:
           scan-type: image
           image-ref: conciliacao-batch:ci
+          trivyignores: .trivyignore
           severity: CRITICAL
           ignore-unfixed: true
           format: table
