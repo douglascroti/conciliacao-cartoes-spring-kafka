@@ -1,5 +1,6 @@
 package br.estudo.conciliacao.lambda.infra;
 
+import java.nio.charset.StandardCharsets;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
@@ -35,9 +36,11 @@ public class PublicadorEventos {
      * container, e um envio pendente poderia nunca sair. É o equivalente a não esquecer o
      * {@code await} antes do {@code return} no Node.
      */
-    public RecordMetadata publicar(ArquivoRecebidoEvento evento) {
+    public RecordMetadata publicar(ArquivoRecebidoEvento evento, Traceparent rastreio) {
         // A chave da mensagem é o id do arquivo: eventos do mesmo arquivo caem na mesma partição.
         var registro = new ProducerRecord<>(topico, evento.idArquivo().toString(), json.writeValueAsString(evento));
+        // Header, não campo do JSON: é onde o Spring Kafka (e qualquer cliente instrumentado) procura o contexto.
+        registro.headers().add(Traceparent.HEADER, rastreio.valor().getBytes(StandardCharsets.US_ASCII));
         try {
             return produtor.send(registro).get(TIMEOUT_ENVIO_SEGUNDOS, TimeUnit.SECONDS);
         } catch (InterruptedException e) {

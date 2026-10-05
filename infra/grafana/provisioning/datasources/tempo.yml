@@ -1,0 +1,16 @@
+# Traces do Grafana Tempo. Busca por traceId (copiado do log) ou por filtros (serviço, duração, status).
+apiVersion: 1
+
+datasources:
+  - name: Tempo
+    uid: tempo
+    type: tempo
+    access: proxy
+    url: http://tempo:3200
+    editable: false
+    jsonData:
+      # Mostra o mapa de serviços e a busca pelo construtor de consultas TraceQL.
+      nodeGraph:
+        enabled: true
+      search:
+        hide: false

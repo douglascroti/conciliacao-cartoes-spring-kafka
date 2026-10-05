@@ -4,6 +4,7 @@ import org.springframework.boot.batch.autoconfigure.BatchTaskExecutor;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.core.task.TaskExecutor;
+import org.springframework.core.task.support.ContextPropagatingTaskDecorator;
 import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor;
 
 /**
@@ -28,6 +29,11 @@ public class ExecucaoJobConfig {
         executor.setCorePoolSize(props.job().execucoesSimultaneas());
         executor.setMaxPoolSize(props.job().execucoesSimultaneas());
         executor.setQueueCapacity(100);
+        // Leva o contexto da thread do consumer (trace atual, MDC) para a thread do job: sem isso o
+        // job começaria um trace novo, desligado do evento que o disparou. Em Node, o equivalente é
+        // o AsyncLocalStorage, que acompanha o fluxo assíncrono sozinho; em Java, entre threads de
+        // um pool, é preciso decorar as tarefas.
+        executor.setTaskDecorator(new ContextPropagatingTaskDecorator());
         // No desligamento, espera os jobs em andamento terminarem (até 30 s) em vez de matá-los.
         executor.setWaitForTasksToCompleteOnShutdown(true);
         executor.setAwaitTerminationSeconds(30);

@@ -166,6 +166,7 @@ services:
       JOB_EXECUCOES_SIMULTANEAS: ${JOB_EXECUCOES_SIMULTANEAS:-2}
       JOB_PERCENTUAL_MAXIMO_LINHAS_INVALIDAS: ${JOB_PERCENTUAL_MAXIMO_LINHAS_INVALIDAS:-1}
       JOB_MINIMO_LINHAS_INVALIDAS: ${JOB_MINIMO_LINHAS_INVALIDAS:-100}
+      OTLP_TRACES_ENDPOINT: http://tempo:4318/v1/traces
     # Com ExitOnOutOfMemoryError (Dockerfile), uma falta de memória derruba a JVM e o Docker sobe
     # o container de novo; na subida, a recuperação retoma o job interrompido. Só vale quando o
     # processo morre sozinho: docker stop/kill contam como parada manual e não reiniciam.
@@ -218,6 +219,25 @@ services:
     networks:
       - conciliacao-net
 
+  # Guarda os traces (spans) enviados pelo serviço batch via OTLP. Consulta pelo Grafana.
+  tempo:
+    image: grafana/tempo:2.8.2
+    container_name: tempo
+    command: ["-config.file=/etc/tempo/tempo.yaml"]
+    ports:
+      - "4318:4318"   # OTLP/HTTP: para o batch rodando no host (IDE)
+      - "3200:3200"   # API de consulta
+    volumes:
+      - ./infra/tempo/tempo.yaml:/etc/tempo/tempo.yaml:ro
+      # A imagem roda como o usuário 10001; o volume nomeado herda as permissões de /var/tempo.
+      - tempo-data:/var/tempo
+    deploy:
+      resources:
+        limits:
+          memory: 256m
+    networks:
+      - conciliacao-net
+
   # Dashboards sobre as métricas do Prometheus. http://localhost:3000
   # Datasource e dashboard vêm de infra/grafana (provisionamento): sobem prontos, sem configurar pela tela.
   # Sem login, só leitura; para editar, entre como admin / admin (o Grafana pede para trocar a senha, dá para pular).
@@ -226,6 +246,7 @@ services:
     container_name: grafana
     depends_on:
       - prometheus
+      - tempo
     ports:
       - "3000:3000"
     environment:
@@ -261,3 +282,4 @@ volumes:
   kafka-data:
   postgres-data:
   prometheus-data:
+  tempo-data:

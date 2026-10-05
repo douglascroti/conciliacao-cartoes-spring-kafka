@@ -68,6 +68,11 @@
             <groupId>io.micrometer</groupId>
             <artifactId>micrometer-registry-prometheus</artifactId>
         </dependency>
+        <!-- Tracing: Micrometer Tracing com a ponte para OpenTelemetry, exportando spans via OTLP (Grafana Tempo). -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-opentelemetry</artifactId>
+        </dependency>
 
         <dependency>
             <groupId>org.springframework.boot</groupId>

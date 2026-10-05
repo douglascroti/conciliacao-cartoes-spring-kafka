@@ -19,6 +19,7 @@ import br.estudo.conciliacao.lambda.idempotencia.ArquivoRegistrado;
 import br.estudo.conciliacao.lambda.idempotencia.RegistroIdempotencia;
 import br.estudo.conciliacao.lambda.infra.ArmazenamentoArquivos;
 import br.estudo.conciliacao.lambda.infra.PublicadorEventos;
+import br.estudo.conciliacao.lambda.infra.Traceparent;
 
 /**
  * A "função" da Lambda: um {@code Consumer<S3Event>} comum do Java. O Spring Cloud Function
@@ -95,10 +96,12 @@ public class ReceberArquivoFunction implements Consumer<S3Event> {
         ArquivoRegistrado arquivo = registrado.get();
         var eventoKafka = new ArquivoRecebidoEvento(arquivo.id(), bucket, chave, nomeArquivo, etag,
                 tamanho, dataReferencia.get(), arquivo.recebidoEm());
+        var rastreio = Traceparent.novo();
         try {
-            var metadata = publicador.publicar(eventoKafka);
-            log.info("Publicado: {} (id {}, {} bytes) em {}-{}@{}", nomeArquivo, arquivo.id(), tamanho,
-                    metadata.topic(), metadata.partition(), metadata.offset());
+            var metadata = publicador.publicar(eventoKafka, rastreio);
+            // O traceId leva deste log ao trace do processamento no Grafana Tempo.
+            log.info("Publicado: {} (id {}, {} bytes) em {}-{}@{} traceId={}", nomeArquivo, arquivo.id(), tamanho,
+                    metadata.topic(), metadata.partition(), metadata.offset(), rastreio.traceId());
         } catch (RuntimeException e) {
             // Sem o evento, o registro impediria a retentativa de processar o arquivo: desfaz.
             registro.remover(arquivo);

@@ -40,6 +40,11 @@ spring:
         # Espera até 10 ms para juntar mais mensagens no mesmo envio: os resultados de um chunk
         # saem em poucas requisições em vez de uma por mensagem.
         linger.ms: 10
+    listener:
+      # Cria um span por mensagem consumida, continuando o trace do header traceparent (vindo da Lambda).
+      observation-enabled: true
+    # template.observation-enabled fica desligado (padrão): seria um span por resultado publicado,
+    # 1 milhão num arquivo grande. A publicação já aparece dentro do span do chunk.
 
 conciliacao:
   s3:
@@ -70,6 +75,28 @@ management:
     # Rótulo em todas as séries: separa este serviço de outros no mesmo Prometheus.
     tags:
       application: ${spring.application.name}
+  otlp:
+    metrics:
+      export:
+        # O starter de OpenTelemetry também traz o envio de métricas por OTLP; aqui as métricas
+        # continuam só no Prometheus (pull), e o OTLP fica para os traces.
+        enabled: false
+  tracing:
+    sampling:
+      # 100% dos traces: volume baixo (um trace por arquivo). Em produção com muito tráfego, amostrar.
+      probability: 1.0
+  opentelemetry:
+    tracing:
+      export:
+        otlp:
+          # Grafana Tempo recebendo OTLP por HTTP. Rodando no host: http://localhost:4318/v1/traces.
+          endpoint: ${OTLP_TRACES_ENDPOINT:http://localhost:4318/v1/traces}
+  observations:
+    enable:
+      # Leitura e processamento de cada item (linha): seriam 2 milhões de spans num arquivo de
+      # 1 milhão de linhas. O detalhe fica no nível do chunk (spring.batch.chunk.write).
+      # Colchetes: o nome com pontos é uma chave só (prefixo da observation), não uma hierarquia.
+      "[spring.batch.item]": false
 
 logging:
   file:
