@@ -218,6 +218,40 @@ services:
     networks:
       - conciliacao-net
 
+  # Dashboards sobre as métricas do Prometheus. http://localhost:3000
+  # Datasource e dashboard vêm de infra/grafana (provisionamento): sobem prontos, sem configurar pela tela.
+  # Sem login, só leitura; para editar, entre como admin / admin (o Grafana pede para trocar a senha, dá para pular).
+  grafana:
+    image: grafana/grafana:12.2.0
+    container_name: grafana
+    depends_on:
+      - prometheus
+    ports:
+      - "3000:3000"
+    environment:
+      # Acesso anônimo de leitura: aceitável só numa máquina de desenvolvimento.
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+      GF_AUTH_ANONYMOUS_ORG_ROLE: Viewer
+      # Interface em português; cada usuário ainda pode trocar em Perfil > Idioma.
+      GF_USERS_DEFAULT_LANGUAGE: pt-BR
+      GF_DASHBOARDS_DEFAULT_HOME_DASHBOARD_PATH: /var/lib/grafana/dashboards/conciliacao.json
+      GF_ANALYTICS_REPORTING_ENABLED: "false"
+      GF_ANALYTICS_CHECK_FOR_UPDATES: "false"
+    volumes:
+      - ./infra/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./infra/grafana/dashboards:/var/lib/grafana/dashboards:ro
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:3000/api/health | grep -q '\"database\": *\"ok\"'"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    deploy:
+      resources:
+        limits:
+          memory: 256m
+    networks:
+      - conciliacao-net
+
 networks:
   conciliacao-net:
     # Nome fixo (sem o prefixo do projeto) para o LAMBDA_DOCKER_NETWORK encontrar a rede.

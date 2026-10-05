@@ -1,0 +1,15 @@
+# Datasource criado na subida do Grafana: nada de configurar pela tela.
+# O uid fixo é o que os dashboards versionados usam para referenciar esta fonte.
+apiVersion: 1
+
+datasources:
+  - name: Prometheus
+    uid: prometheus
+    type: prometheus
+    access: proxy
+    url: http://prometheus:9090
+    isDefault: true
+    editable: false
+    jsonData:
+      # Igual ao scrape_interval do Prometheus: o $__rate_interval dos painéis é calculado a partir dele.
+      timeInterval: 15s

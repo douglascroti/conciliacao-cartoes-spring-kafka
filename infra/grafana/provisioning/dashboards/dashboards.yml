@@ -1,0 +1,13 @@
+# Carrega os dashboards JSON de /var/lib/grafana/dashboards (infra/grafana/dashboards no repositório).
+# Alterações feitas pela tela não são salvas no arquivo: para versionar, exporte o JSON
+# (Share > Export) e substitua o arquivo em infra/grafana/dashboards.
+apiVersion: 1
+
+providers:
+  - name: conciliacao
+    folder: Conciliação
+    type: file
+    allowUiUpdates: true
+    updateIntervalSeconds: 30
+    options:
+      path: /var/lib/grafana/dashboards

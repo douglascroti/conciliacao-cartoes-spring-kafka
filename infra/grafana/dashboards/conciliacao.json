@@ -1,0 +1,234 @@
+{
+  "uid": "conciliacao",
+  "title": "Conciliação de cartões",
+  "description": "Arquivos, resultados da conciliação, Spring Batch, Kafka e recursos do serviço conciliacao-batch.",
+  "tags": ["conciliacao", "spring-batch", "kafka"],
+  "timezone": "browser",
+  "refresh": "10s",
+  "time": { "from": "now-30m", "to": "now" },
+  "schemaVersion": 41,
+  "editable": true,
+  "graphTooltip": 1,
+  "templating": { "list": [] },
+  "annotations": { "list": [] },
+  "panels": [
+    {
+      "type": "row", "title": "Negócio", "collapsed": false, "id": 100,
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 0 }, "panels": []
+    },
+    {
+      "type": "stat", "title": "Arquivos concluídos", "id": 1,
+      "description": "Arquivos com status final CONCLUIDO no período selecionado.",
+      "gridPos": { "h": 4, "w": 4, "x": 0, "y": 1 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [{ "refId": "A", "expr": "sum(increase(conciliacao_arquivos_total{status=\"CONCLUIDO\"}[$__range]))", "instant": true }],
+      "fieldConfig": { "defaults": { "unit": "short", "decimals": 0, "color": { "mode": "fixed", "fixedColor": "green" } }, "overrides": [] },
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "value", "graphMode": "none", "textMode": "value" }
+    },
+    {
+      "type": "stat", "title": "Arquivos com falha", "id": 2,
+      "description": "Arquivos com status final FALHA no período (ver arquivo_recebido.mensagem_erro).",
+      "gridPos": { "h": 4, "w": 4, "x": 4, "y": 1 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [{ "refId": "A", "expr": "sum(increase(conciliacao_arquivos_total{status=\"FALHA\"}[$__range]))", "instant": true }],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short", "decimals": 0, "color": { "mode": "thresholds" },
+          "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }, { "color": "red", "value": 1 }] }
+        },
+        "overrides": []
+      },
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "value", "graphMode": "none", "textMode": "value" }
+    },
+    {
+      "type": "stat", "title": "Jobs em execução", "id": 3,
+      "description": "Arquivos sendo conciliados agora (limite: JOB_EXECUCOES_SIMULTANEAS).",
+      "gridPos": { "h": 4, "w": 4, "x": 8, "y": 1 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [{ "refId": "A", "expr": "sum(spring_batch_job_active_seconds_count)" }],
+      "fieldConfig": { "defaults": { "unit": "short", "decimals": 0, "color": { "mode": "fixed", "fixedColor": "blue" } }, "overrides": [] },
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "value", "graphMode": "area", "textMode": "value" }
+    },
+    {
+      "type": "stat", "title": "Arquivos na fila", "id": 4,
+      "description": "Jobs já agendados esperando uma thread livre do executor.",
+      "gridPos": { "h": 4, "w": 4, "x": 12, "y": 1 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [{ "refId": "A", "expr": "sum(executor_queued_tasks{name=\"executorJobs\"})" }],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short", "decimals": 0, "color": { "mode": "thresholds" },
+          "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }, { "color": "orange", "value": 1 }] }
+        },
+        "overrides": []
+      },
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "value", "graphMode": "area", "textMode": "value" }
+    },
+    {
+      "type": "stat", "title": "Linhas inválidas", "id": 5,
+      "description": "Linhas puladas no período (detalhes em linha_invalida e no tópico conciliacao.erro).",
+      "gridPos": { "h": 4, "w": 4, "x": 16, "y": 1 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [{ "refId": "A", "expr": "sum(increase(conciliacao_linhas_invalidas_total[$__range]))", "instant": true }],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short", "decimals": 0, "color": { "mode": "thresholds" },
+          "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }, { "color": "orange", "value": 1 }] }
+        },
+        "overrides": []
+      },
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "value", "graphMode": "none", "textMode": "value" }
+    },
+    {
+      "type": "stat", "title": "Taxa de conciliação", "id": 6,
+      "description": "CONCILIADA sobre o total de resultados do período.",
+      "gridPos": { "h": 4, "w": 4, "x": 20, "y": 1 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [{
+        "refId": "A", "instant": true,
+        "expr": "sum(increase(conciliacao_resultados_total{status=\"CONCILIADA\"}[$__range])) / sum(increase(conciliacao_resultados_total[$__range]))"
+      }],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit", "decimals": 1, "min": 0, "max": 1, "color": { "mode": "thresholds" },
+          "thresholds": { "mode": "absolute", "steps": [{ "color": "red", "value": null }, { "color": "orange", "value": 0.8 }, { "color": "green", "value": 0.9 }] }
+        },
+        "overrides": []
+      },
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "value", "graphMode": "none", "textMode": "value" }
+    },
+    {
+      "type": "timeseries", "title": "Resultados por segundo, por status", "id": 7,
+      "description": "Vazão da conciliação: transações gravadas e publicadas por segundo.",
+      "gridPos": { "h": 8, "w": 16, "x": 0, "y": 5 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [{
+        "refId": "A", "legendFormat": "{{status}}",
+        "expr": "sum by (status) (rate(conciliacao_resultados_total[$__rate_interval]))"
+      }],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ops", "min": 0,
+          "custom": { "drawStyle": "line", "fillOpacity": 30, "lineWidth": 1, "stacking": { "mode": "normal", "group": "A" }, "showPoints": "never" }
+        },
+        "overrides": [
+          { "matcher": { "id": "byName", "options": "CONCILIADA" }, "properties": [{ "id": "color", "value": { "mode": "fixed", "fixedColor": "green" } }] },
+          { "matcher": { "id": "byName", "options": "DIVERGENTE" }, "properties": [{ "id": "color", "value": { "mode": "fixed", "fixedColor": "orange" } }] },
+          { "matcher": { "id": "byName", "options": "NAO_ENCONTRADA" }, "properties": [{ "id": "color", "value": { "mode": "fixed", "fixedColor": "red" } }] },
+          { "matcher": { "id": "byName", "options": "AUSENTE_NO_ARQUIVO" }, "properties": [{ "id": "color", "value": { "mode": "fixed", "fixedColor": "purple" } }] }
+        ]
+      },
+      "options": { "legend": { "displayMode": "list", "placement": "bottom" }, "tooltip": { "mode": "multi", "sort": "desc" } }
+    },
+    {
+      "type": "bargauge", "title": "Resultados no período", "id": 8,
+      "gridPos": { "h": 8, "w": 8, "x": 16, "y": 5 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [{
+        "refId": "A", "legendFormat": "{{status}}", "instant": true,
+        "expr": "sum by (status) (increase(conciliacao_resultados_total[$__range]))"
+      }],
+      "fieldConfig": {
+        "defaults": { "unit": "short", "decimals": 0, "min": 0, "color": { "mode": "fixed", "fixedColor": "blue" } },
+        "overrides": [
+          { "matcher": { "id": "byName", "options": "CONCILIADA" }, "properties": [{ "id": "color", "value": { "mode": "fixed", "fixedColor": "green" } }] },
+          { "matcher": { "id": "byName", "options": "DIVERGENTE" }, "properties": [{ "id": "color", "value": { "mode": "fixed", "fixedColor": "orange" } }] },
+          { "matcher": { "id": "byName", "options": "NAO_ENCONTRADA" }, "properties": [{ "id": "color", "value": { "mode": "fixed", "fixedColor": "red" } }] },
+          { "matcher": { "id": "byName", "options": "AUSENTE_NO_ARQUIVO" }, "properties": [{ "id": "color", "value": { "mode": "fixed", "fixedColor": "purple" } }] }
+        ]
+      },
+      "options": { "orientation": "horizontal", "displayMode": "basic", "showUnfilled": true, "reduceOptions": { "calcs": ["lastNotNull"] } }
+    },
+    {
+      "type": "row", "title": "Spring Batch e Kafka", "collapsed": false, "id": 101,
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 13 }, "panels": []
+    },
+    {
+      "type": "timeseries", "title": "Duração do job e dos steps (máx. recente)", "id": 9,
+      "description": "Maior duração observada na janela recente do Micrometer (cerca de 2 min); a linha some quando não há execuções.",
+      "gridPos": { "h": 8, "w": 8, "x": 0, "y": 14 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        { "refId": "A", "legendFormat": "job ({{spring_batch_job_status}})", "expr": "max by (spring_batch_job_status) (spring_batch_job_seconds_max) > 0" },
+        { "refId": "B", "legendFormat": "step {{spring_batch_step_name}}", "expr": "max by (spring_batch_step_name) (spring_batch_step_seconds_max) > 0" }
+      ],
+      "fieldConfig": { "defaults": { "unit": "s", "min": 0, "custom": { "drawStyle": "line", "fillOpacity": 10, "showPoints": "auto", "spanNulls": false } }, "overrides": [] },
+      "options": { "legend": { "displayMode": "list", "placement": "bottom" }, "tooltip": { "mode": "multi" } }
+    },
+    {
+      "type": "timeseries", "title": "Tempo médio de escrita por chunk", "id": 10,
+      "description": "Busca das autorizações + gravação no banco + publicação no Kafka, por chunk.",
+      "gridPos": { "h": 8, "w": 8, "x": 8, "y": 14 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [{
+        "refId": "A", "legendFormat": "{{spring_batch_chunk_write_step_name}}",
+        "expr": "sum by (spring_batch_chunk_write_step_name) (rate(spring_batch_chunk_write_seconds_sum[$__rate_interval])) / sum by (spring_batch_chunk_write_step_name) (rate(spring_batch_chunk_write_seconds_count[$__rate_interval]))"
+      }],
+      "fieldConfig": { "defaults": { "unit": "s", "min": 0, "custom": { "drawStyle": "line", "fillOpacity": 10, "showPoints": "never" } }, "overrides": [] },
+      "options": { "legend": { "displayMode": "list", "placement": "bottom" }, "tooltip": { "mode": "multi" } }
+    },
+    {
+      "type": "timeseries", "title": "Lag do consumer (conciliacao.arquivo-recebido)", "id": 11,
+      "description": "Eventos de arquivo publicados pela Lambda e ainda não lidos pelo serviço.",
+      "gridPos": { "h": 8, "w": 8, "x": 16, "y": 14 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [{
+        "refId": "A", "legendFormat": "partição {{partition}}",
+        "expr": "sum by (partition) (kafka_consumer_fetch_manager_records_lag{topic=\"conciliacao.arquivo-recebido\"})"
+      }],
+      "fieldConfig": { "defaults": { "unit": "short", "min": 0, "decimals": 0, "custom": { "drawStyle": "line", "fillOpacity": 10, "showPoints": "never" } }, "overrides": [] },
+      "options": { "legend": { "displayMode": "list", "placement": "bottom" }, "tooltip": { "mode": "multi" } }
+    },
+    {
+      "type": "row", "title": "Recursos do serviço", "collapsed": false, "id": 102,
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 22 }, "panels": []
+    },
+    {
+      "type": "timeseries", "title": "Memória heap da JVM", "id": 12,
+      "description": "Limite do container: 768 MB; heap máximo: 75% dele (MaxRAMPercentage).",
+      "gridPos": { "h": 8, "w": 8, "x": 0, "y": 23 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        { "refId": "A", "legendFormat": "usado", "expr": "sum(jvm_memory_used_bytes{area=\"heap\"})" },
+        { "refId": "B", "legendFormat": "máximo", "expr": "sum(jvm_memory_max_bytes{area=\"heap\"})" }
+      ],
+      "fieldConfig": {
+        "defaults": { "unit": "bytes", "min": 0, "custom": { "drawStyle": "line", "fillOpacity": 15, "showPoints": "never" } },
+        "overrides": [{ "matcher": { "id": "byName", "options": "máximo" }, "properties": [
+          { "id": "color", "value": { "mode": "fixed", "fixedColor": "red" } },
+          { "id": "custom.fillOpacity", "value": 0 },
+          { "id": "custom.lineStyle", "value": { "fill": "dash", "dash": [10, 10] } }
+        ] }]
+      },
+      "options": { "legend": { "displayMode": "list", "placement": "bottom" }, "tooltip": { "mode": "multi" } }
+    },
+    {
+      "type": "timeseries", "title": "CPU e pausas de GC", "id": 13,
+      "description": "CPU do processo (0–100% dos núcleos do container) e fração do tempo parada em coleta de lixo.",
+      "gridPos": { "h": 8, "w": 8, "x": 8, "y": 23 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        { "refId": "A", "legendFormat": "CPU do processo", "expr": "max(process_cpu_usage)" },
+        { "refId": "B", "legendFormat": "tempo em GC", "expr": "sum(rate(jvm_gc_pause_seconds_sum[$__rate_interval]))" }
+      ],
+      "fieldConfig": { "defaults": { "unit": "percentunit", "min": 0, "custom": { "drawStyle": "line", "fillOpacity": 10, "showPoints": "never" } }, "overrides": [] },
+      "options": { "legend": { "displayMode": "list", "placement": "bottom" }, "tooltip": { "mode": "multi" } }
+    },
+    {
+      "type": "timeseries", "title": "Conexões com o PostgreSQL (HikariCP)", "id": 14,
+      "description": "Pendentes > 0: threads esperando conexão; o pool (máx. 5) virou gargalo.",
+      "gridPos": { "h": 8, "w": 8, "x": 16, "y": 23 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        { "refId": "A", "legendFormat": "ativas", "expr": "sum(hikaricp_connections_active)" },
+        { "refId": "B", "legendFormat": "ociosas", "expr": "sum(hikaricp_connections_idle)" },
+        { "refId": "C", "legendFormat": "pendentes", "expr": "sum(hikaricp_connections_pending)" }
+      ],
+      "fieldConfig": {
+        "defaults": { "unit": "short", "min": 0, "decimals": 0, "custom": { "drawStyle": "line", "fillOpacity": 10, "showPoints": "never" } },
+        "overrides": [{ "matcher": { "id": "byName", "options": "pendentes" }, "properties": [{ "id": "color", "value": { "mode": "fixed", "fixedColor": "red" } }] }]
+      },
+      "options": { "legend": { "displayMode": "list", "placement": "bottom" }, "tooltip": { "mode": "multi" } }
+    }
+  ]
+}
