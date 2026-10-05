@@ -9,6 +9,8 @@
 ![PostgreSQL](https://img.shields.io/badge/PostgreSQL-18-4169E1?logo=postgresql)
 ![Testcontainers](https://img.shields.io/badge/Testcontainers-JUnit%205-2496ED?logo=testcontainers)
 ![OpenTelemetry](https://img.shields.io/badge/OpenTelemetry-Prometheus%20%7C%20Grafana%20%7C%20Tempo-F46800?logo=opentelemetry)
+[![CI](https://github.com/douglascroti/conciliacao-cartoes-spring-kafka/actions/workflows/ci.yml/badge.svg)](https://github.com/douglascroti/conciliacao-cartoes-spring-kafka/actions/workflows/ci.yml)
+![Trivy](https://img.shields.io/badge/Trivy-scan%20no%20CI-1904DA?logo=aqua)
 ![Status](https://img.shields.io/badge/status-em%20desenvolvimento-yellow)
 ![Licença](https://img.shields.io/badge/licen%C3%A7a-MIT-blue)
 
@@ -40,6 +42,7 @@ O projeto reproduz um cenário real do mercado de meios de pagamento: todo dia a
 - [Eventos Kafka](#-eventos-kafka)
 - [Garantias de processamento](#-garantias-de-processamento)
 - [Testes](#-testes)
+- [CI/CD e segurança da cadeia](#-cicd-e-segurança-da-cadeia)
 - [Desempenho](#-desempenho)
 - [Formato do arquivo de conciliação](#-formato-do-arquivo-de-conciliação)
 - [Segurança e PCI-DSS](#-segurança-e-pci-dss)
@@ -104,6 +107,7 @@ A Lambda atua apenas como **gatilho**: o processamento pesado fica no batch, que
 | Banco de dados | PostgreSQL 18, schema versionado com Flyway |
 | Build | Maven multi-módulo (com Maven Wrapper) |
 | Containers | Docker, Docker Compose, Dockerfile multi-stage |
+| CI/CD | GitHub Actions, Trivy (CVEs, segredos e configuração), GitHub Container Registry, Dependabot |
 | Operação | Spring Boot Actuator (health e métricas) |
 | Observabilidade | Micrometer, Prometheus (métricas e alertas), Grafana, OpenTelemetry + Grafana Tempo (traces) |
 
@@ -146,6 +150,7 @@ Os principais pontos de arquitetura:
 ├── infra/                         # Init (bucket, tabela DynamoDB, Lambda, tópicos), migrations, exemplos,
 │                                  # Prometheus (coleta e alertas), Grafana (datasources e dashboard) e Tempo
 ├── scripts/                       # Deploy da Lambda, carga de massa, envio, conferência e medição
+├── .github/                       # workflow de CI/CD (testes, Trivy, publicação) e Dependabot
 ├── LICENSE                        # licença MIT
 └── docs/
     └── comandos.md                # comandos do dia a dia (subir infra, deploy, inspecionar Kafka/S3/banco)
@@ -443,6 +448,48 @@ variável de ambiente ou, se ela não existir, do `.env`). Sem token, os testes 
 
 ---
 
+## 🔁 CI/CD e segurança da cadeia
+
+Workflow em [`.github/workflows/ci.yml`](.github/workflows/ci.yml), a cada push e pull request:
+
+```mermaid
+flowchart LR
+    P[push / PR] --> T[Build + 67 testes<br/>Testcontainers]
+    T --> R[Trivy: repositório<br/>dependências, segredos, config]
+    T --> I[Build da imagem<br/>conciliacao-batch]
+    I --> S[Trivy: imagem]
+    S -->|só na main| G[(ghcr.io)]
+```
+
+| Etapa | O que faz |
+| --- | --- |
+| Build e testes | `./mvnw verify`: 55 unitários e 12 de integração com LocalStack, PostgreSQL e Kafka em containers. O resumo da execução mostra executados, falhas e **pulados** |
+| Scan do repositório | Trivy nas dependências Maven, em segredos commitados por engano e na configuração (Dockerfile, compose) |
+| Imagem | Build da mesma imagem do docker-compose, com cache de camadas, e scan do Trivy (sistema operacional e JARs) |
+| Publicação | Só em push na `main`: `ghcr.io/douglascroti/conciliacao-batch`, com tags `latest` e o sha curto do commit |
+
+**Política de vulnerabilidades:** todos os achados vão para a aba **Security → Code scanning** do
+GitHub; o pipeline **falha só com CVE crítico que já tem correção**. CVE sem correção não depende do
+projeto e não deve travar entregas, mas continua visível.
+
+O primeiro scan encontrou **3 CVEs críticos no Tomcat** embarcado (e 5 altos no Jackson), ainda sem um
+Spring Boot 4.0.x que os corrigisse. As versões foram sobrescritas no POM pai (`tomcat.version`,
+`jackson-bom.version`) com o motivo documentado, a remover quando o Boot alcançar.
+
+**Atualizações:** o [Dependabot](.github/dependabot.yml) abre PRs semanais para Maven, imagens Docker
+(Dockerfile e docker-compose) e versões das actions, agrupando patches; o Spring Boot fica na linha
+4.0.x enquanto o Spring Cloud não suportar a 4.1. Cada PR passa pelo mesmo CI.
+
+**Segredos:** o único é o `LOCALSTACK_AUTH_TOKEN`, cadastrado como secret do repositório (o Actions o
+mascara nos logs). A publicação no ghcr.io usa o token temporário da própria execução, com permissões
+mínimas por job.
+
+```bash
+docker pull ghcr.io/douglascroti/conciliacao-batch:latest
+```
+
+---
+
 ## 📈 Desempenho
 
 Teste com **1 milhão de linhas** gerado pelo `gerador-dados`, passando pelo fluxo completo
@@ -515,6 +562,8 @@ Mesmo sendo um ambiente de estudo, o projeto segue práticas exigidas em sistema
   padrão do Spring Batch traz a linha inteira e é descartada; há teste para isso).
 - Segredos ficam fora do código e do repositório (`.env` no `.gitignore` e no `.dockerignore`, fora da imagem).
 - O serviço de conciliação roda no container com usuário sem privilégios.
+- Dependências, imagem e repositório passam pelo Trivy a cada push; CVE crítico com correção
+  bloqueia o pipeline (ver [CI/CD](#-cicd-e-segurança-da-cadeia)).
 - Valores monetários são tratados com `BigDecimal`, nunca com ponto flutuante.
 - O endpoint de restart não tem autenticação: é operacional e, fora do ambiente local, ficaria
   atrás de autenticação ou de rede interna.
@@ -549,7 +598,7 @@ Mesmo sendo um ambiente de estudo, o projeto segue práticas exigidas em sistema
 - [x] **Fase 5:** documentação
 - [x] **Fase 6:** testes automatizados com JUnit 5 e Testcontainers
 - [x] **Fase 7:** observabilidade com OpenTelemetry, Prometheus, Grafana e Tempo
-- [ ] **Fase 8:** pipeline CI/CD com GitHub Actions e scan de segurança (Trivy)
+- [x] **Fase 8:** pipeline CI/CD com GitHub Actions, scan de segurança (Trivy) e imagem no ghcr.io
 - [ ] **Fase 9:** deploy na AWS com Terraform
 
 ---

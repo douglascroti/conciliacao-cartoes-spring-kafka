@@ -1,0 +1,49 @@
+# Dependabot: abre pull requests com atualizações de dependências; o CI de cada PR roda os testes
+# e o Trivy antes de qualquer merge. Atualizações agrupadas para não virar uma enxurrada de PRs.
+version: 2
+
+updates:
+  - package-ecosystem: maven
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 5
+    groups:
+      # Patches juntos num PR só; minors e majors continuam separados, para revisar com calma.
+      maven-patches:
+        update-types: [patch]
+    ignore:
+      # Spring Boot fica na 4.0.x até o Spring Cloud 2026.0 suportar a 4.1 (ADR 0001).
+      - dependency-name: org.springframework.boot:*
+        update-types: [version-update:semver-minor, version-update:semver-major]
+      # O Spring Cloud segue o Boot.
+      - dependency-name: org.springframework.cloud:*
+        update-types: [version-update:semver-major]
+
+  # Imagens base do Dockerfile do serviço de conciliação (JDK de build e JRE de execução).
+  - package-ecosystem: docker
+    directory: /conciliacao-batch
+    schedule:
+      interval: weekly
+      day: monday
+
+  # Imagens do docker-compose (LocalStack, Kafka, PostgreSQL, Prometheus, Grafana, Tempo...).
+  - package-ecosystem: docker-compose
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+    groups:
+      infra-local:
+        patterns: ['*']
+
+  # Versões das actions usadas nos workflows.
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+    groups:
+      actions:
+        patterns: ['*']
