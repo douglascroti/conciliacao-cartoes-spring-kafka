@@ -1,0 +1,20 @@
+# Prometheus: busca (scrape) as métricas dos serviços de tempos em tempos e guarda como séries temporais.
+# Modelo pull: é o Prometheus que chama /actuator/prometheus; a aplicação não envia nada.
+# UI: http://localhost:9090
+
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+scrape_configs:
+  - job_name: conciliacao-batch
+    metrics_path: /actuator/prometheus
+    static_configs:
+      # Nome do serviço na rede do compose. Com o batch rodando no host (IDE), troque por
+      # host.docker.internal:8081.
+      - targets: ["conciliacao-batch:8081"]
+
+  # O próprio Prometheus (útil para ver se a coleta está saudável).
+  - job_name: prometheus
+    static_configs:
+      - targets: ["localhost:9090"]

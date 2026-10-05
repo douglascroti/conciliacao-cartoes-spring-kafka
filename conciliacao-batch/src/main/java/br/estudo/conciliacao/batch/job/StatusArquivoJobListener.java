@@ -12,6 +12,7 @@ import org.springframework.batch.core.job.parameters.JobParameters;
 import org.springframework.batch.core.listener.JobExecutionListener;
 import org.springframework.dao.DuplicateKeyException;
 
+import br.estudo.conciliacao.batch.observabilidade.MetricasConciliacao;
 import br.estudo.conciliacao.batch.persistencia.RepositorioArquivo;
 
 /** Mantém {@code arquivo_recebido.status} em dia: PROCESSANDO no início, CONCLUIDO ou FALHA no fim. */
@@ -22,9 +23,11 @@ public class StatusArquivoJobListener implements JobExecutionListener {
     private static final int TAMANHO_MAXIMO_MENSAGEM = 1000;
 
     private final RepositorioArquivo repositorio;
+    private final MetricasConciliacao metricas;
 
-    public StatusArquivoJobListener(RepositorioArquivo repositorio) {
+    public StatusArquivoJobListener(RepositorioArquivo repositorio, MetricasConciliacao metricas) {
         this.repositorio = repositorio;
+        this.metricas = metricas;
     }
 
     @Override
@@ -52,5 +55,6 @@ public class StatusArquivoJobListener implements JobExecutionListener {
         }
         repositorio.finalizarProcessamento(UUID.fromString(execucao.getJobParameters().getString("idArquivo")),
                 concluido ? "CONCLUIDO" : "FALHA", mensagem);
+        metricas.registrarArquivo(concluido);
     }
 }

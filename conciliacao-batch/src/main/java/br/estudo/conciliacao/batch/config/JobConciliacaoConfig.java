@@ -31,6 +31,7 @@ import br.estudo.conciliacao.batch.job.StatusArquivoJobListener;
 import br.estudo.conciliacao.batch.leitura.LinhaArquivo;
 import br.estudo.conciliacao.batch.leitura.LinhaArquivoLineMapper;
 import br.estudo.conciliacao.batch.leitura.ObjetoS3Resource;
+import br.estudo.conciliacao.batch.observabilidade.MetricasConciliacao;
 import br.estudo.conciliacao.batch.persistencia.RepositorioArquivo;
 import br.estudo.conciliacao.batch.persistencia.RepositorioConciliacao;
 import br.estudo.conciliacao.batch.publicacao.PublicadorConciliacao;
@@ -66,9 +67,10 @@ public class JobConciliacaoConfig {
 
     @Bean
     Job conciliacaoArquivo(JobRepository jobRepository, Step conciliarLinhas, Step registrarAusentes,
-                           RepositorioConciliacao repositorio, RepositorioArquivo repositorioArquivo) {
+                           RepositorioConciliacao repositorio, RepositorioArquivo repositorioArquivo,
+                           MetricasConciliacao metricas) {
         return new JobBuilder(NOME_JOB, jobRepository)
-                .listener(new StatusArquivoJobListener(repositorioArquivo))
+                .listener(new StatusArquivoJobListener(repositorioArquivo, metricas))
                 .listener(new LogExecucaoJobListener(repositorio))
                 .start(conciliarLinhas)
                 .next(registrarAusentes)
@@ -104,9 +106,10 @@ public class JobConciliacaoConfig {
     @Bean
     @StepScope
     LinhaInvalidaSkipListener linhaInvalidaSkipListener(PublicadorConciliacao publicador, RepositorioArquivo repositorioArquivo,
+                                                        MetricasConciliacao metricas,
                                                         @Value("#{jobParameters['idArquivo']}") String idArquivo,
                                                         @Value("#{jobParameters['nomeArquivo']}") String nomeArquivo) {
-        return new LinhaInvalidaSkipListener(publicador, repositorioArquivo, UUID.fromString(idArquivo), nomeArquivo);
+        return new LinhaInvalidaSkipListener(publicador, repositorioArquivo, metricas, UUID.fromString(idArquivo), nomeArquivo);
     }
 
     /**
@@ -131,10 +134,10 @@ public class JobConciliacaoConfig {
     @Bean
     @StepScope
     ConciliacaoLinhasWriter conciliacaoLinhasWriter(RepositorioConciliacao repositorio, PublicadorConciliacao publicador,
-                                                    Conciliador conciliador,
+                                                    Conciliador conciliador, MetricasConciliacao metricas,
                                                     @Value("#{jobParameters['idArquivo']}") String idArquivo,
                                                     @Value("#{jobParameters['dataReferencia']}") LocalDate dataReferencia) {
-        return new ConciliacaoLinhasWriter(repositorio, publicador, conciliador, UUID.fromString(idArquivo), dataReferencia);
+        return new ConciliacaoLinhasWriter(repositorio, publicador, conciliador, metricas, UUID.fromString(idArquivo), dataReferencia);
     }
 
     // ---- Step 2: autorizações ausentes no arquivo ----
@@ -176,9 +179,9 @@ public class JobConciliacaoConfig {
     @Bean
     @StepScope
     AusentesWriter ausentesWriter(RepositorioConciliacao repositorio, PublicadorConciliacao publicador,
-                                  Conciliador conciliador,
+                                  Conciliador conciliador, MetricasConciliacao metricas,
                                   @Value("#{jobParameters['idArquivo']}") String idArquivo,
                                   @Value("#{jobParameters['dataReferencia']}") LocalDate dataReferencia) {
-        return new AusentesWriter(repositorio, publicador, conciliador, UUID.fromString(idArquivo), dataReferencia);
+        return new AusentesWriter(repositorio, publicador, conciliador, metricas, UUID.fromString(idArquivo), dataReferencia);
     }
 }

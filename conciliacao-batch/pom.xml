@@ -54,7 +54,7 @@
             </exclusions>
         </dependency>
 
-        <!-- /actuator/health e métricas (base para Prometheus na fase 7); exige um servidor web. -->
+        <!-- /actuator/health e métricas; exige um servidor web. -->
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-webmvc</artifactId>
@@ -62,6 +62,11 @@
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-actuator</artifactId>
+        </dependency>
+        <!-- Formato do Prometheus em /actuator/prometheus (o Micrometer é a fachada; este é o backend). -->
+        <dependency>
+            <groupId>io.micrometer</groupId>
+            <artifactId>micrometer-registry-prometheus</artifactId>
         </dependency>
 
         <dependency>

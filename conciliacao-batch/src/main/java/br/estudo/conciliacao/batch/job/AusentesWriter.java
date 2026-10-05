@@ -10,6 +10,7 @@ import org.springframework.batch.infrastructure.item.ItemWriter;
 import br.estudo.conciliacao.batch.conciliacao.Conciliador;
 import br.estudo.conciliacao.batch.conciliacao.ResultadoConciliacao;
 import br.estudo.conciliacao.batch.conciliacao.TransacaoAutorizada;
+import br.estudo.conciliacao.batch.observabilidade.MetricasConciliacao;
 import br.estudo.conciliacao.batch.persistencia.RepositorioConciliacao;
 import br.estudo.conciliacao.batch.publicacao.PublicadorConciliacao;
 
@@ -19,14 +20,17 @@ public class AusentesWriter implements ItemWriter<TransacaoAutorizada> {
     private final RepositorioConciliacao repositorio;
     private final PublicadorConciliacao publicador;
     private final Conciliador conciliador;
+    private final MetricasConciliacao metricas;
     private final UUID idArquivo;
     private final LocalDate dataReferencia;
 
     public AusentesWriter(RepositorioConciliacao repositorio, PublicadorConciliacao publicador,
-                          Conciliador conciliador, UUID idArquivo, LocalDate dataReferencia) {
+                          Conciliador conciliador, MetricasConciliacao metricas,
+                          UUID idArquivo, LocalDate dataReferencia) {
         this.repositorio = repositorio;
         this.publicador = publicador;
         this.conciliador = conciliador;
+        this.metricas = metricas;
         this.idArquivo = idArquivo;
         this.dataReferencia = dataReferencia;
     }
@@ -36,5 +40,6 @@ public class AusentesWriter implements ItemWriter<TransacaoAutorizada> {
         List<ResultadoConciliacao> resultados = chunk.getItems().stream().map(conciliador::ausente).toList();
         repositorio.inserirResultados(idArquivo, resultados);
         publicador.publicarResultados(idArquivo, dataReferencia, resultados);
+        metricas.registrarResultados(resultados);
     }
 }

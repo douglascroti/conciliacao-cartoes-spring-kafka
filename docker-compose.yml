@@ -198,6 +198,26 @@ services:
     networks:
       - conciliacao-net
 
+  # Coleta e guarda as métricas do serviço batch (/actuator/prometheus). http://localhost:9090
+  prometheus:
+    image: prom/prometheus:v3.5.0
+    container_name: prometheus
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      # Ambiente de estudo: 7 dias de histórico bastam e limitam o disco.
+      - --storage.tsdb.retention.time=7d
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./infra/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus-data:/prometheus
+    deploy:
+      resources:
+        limits:
+          memory: 256m
+    networks:
+      - conciliacao-net
+
 networks:
   conciliacao-net:
     # Nome fixo (sem o prefixo do projeto) para o LAMBDA_DOCKER_NETWORK encontrar a rede.
@@ -206,3 +226,4 @@ networks:
 volumes:
   kafka-data:
   postgres-data:
+  prometheus-data:

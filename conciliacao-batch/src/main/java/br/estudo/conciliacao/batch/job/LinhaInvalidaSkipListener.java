@@ -10,6 +10,7 @@ import org.springframework.batch.infrastructure.item.file.FlatFileParseException
 
 import br.estudo.conciliacao.batch.leitura.LinhaArquivo;
 import br.estudo.conciliacao.batch.leitura.LinhaInvalidaException;
+import br.estudo.conciliacao.batch.observabilidade.MetricasConciliacao;
 import br.estudo.conciliacao.batch.persistencia.RepositorioArquivo;
 import br.estudo.conciliacao.batch.publicacao.PublicadorConciliacao;
 import br.estudo.conciliacao.eventos.ErroLinhaEvento;
@@ -33,14 +34,16 @@ public class LinhaInvalidaSkipListener implements SkipListener<LinhaArquivo, Lin
 
     private final PublicadorConciliacao publicador;
     private final RepositorioArquivo repositorio;
+    private final MetricasConciliacao metricas;
     private final UUID idArquivo;
     private final String nomeArquivo;
     private int registradasNoLog;
 
     public LinhaInvalidaSkipListener(PublicadorConciliacao publicador, RepositorioArquivo repositorio,
-                                     UUID idArquivo, String nomeArquivo) {
+                                     MetricasConciliacao metricas, UUID idArquivo, String nomeArquivo) {
         this.publicador = publicador;
         this.repositorio = repositorio;
+        this.metricas = metricas;
         this.idArquivo = idArquivo;
         this.nomeArquivo = nomeArquivo;
     }
@@ -61,6 +64,7 @@ public class LinhaInvalidaSkipListener implements SkipListener<LinhaArquivo, Lin
         }
         repositorio.registrarLinhaInvalida(idArquivo, falha.getLineNumber(), motivo);
         publicador.publicarErro(new ErroLinhaEvento(idArquivo, nomeArquivo, falha.getLineNumber(), motivo, Instant.now()));
+        metricas.registrarLinhaInvalida();
     }
 
     static String motivo(FlatFileParseException falha) {

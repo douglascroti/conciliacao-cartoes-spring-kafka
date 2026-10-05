@@ -61,10 +61,15 @@ management:
   endpoints:
     web:
       exposure:
-        include: health,info,metrics
+        # prometheus: coletado pelo container prometheus a cada 15 s (infra/prometheus).
+        include: health,info,metrics,prometheus
   endpoint:
     health:
       show-details: always
+  metrics:
+    # Rótulo em todas as séries: separa este serviço de outros no mesmo Prometheus.
+    tags:
+      application: ${spring.application.name}
 
 logging:
   file:
