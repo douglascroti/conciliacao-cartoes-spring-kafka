@@ -1,0 +1,72 @@
+# Integração contínua: compila e roda todos os testes (unitários + integração com Testcontainers)
+# a cada push e pull request. É o equivalente a um workflow Node com "npm ci && npm test", com a
+# diferença de que os testes de integração sobem LocalStack, PostgreSQL e Kafka de verdade.
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+# Mínimo necessário: o job só lê o código. Permissões extras são dadas por job, quando precisar.
+permissions:
+  contents: read
+
+# Um push novo na mesma branch cancela a execução anterior, que ficou desatualizada.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  testes:
+    name: Build e testes
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: '21'
+          # Guarda o ~/.m2 entre execuções (chave: hash dos pom.xml); só baixa o que mudou.
+          cache: maven
+
+      # verify = package (55 testes unitários) + failsafe (12 de integração, *IT).
+      # O runner do GitHub já tem Docker, que o Testcontainers usa para subir os containers.
+      # Sem o secret (ex.: PR vindo de fork), os testes com LocalStack são pulados, não falham.
+      - name: Build e testes
+        run: ./mvnw -B -ntp verify
+        env:
+          LOCALSTACK_AUTH_TOKEN: ${{ secrets.LOCALSTACK_AUTH_TOKEN }}
+
+      # Tabela no resumo da execução. Mostra os pulados: sem o secret o CI fica verde, mas os testes
+      # com LocalStack não rodaram, e isso precisa estar visível.
+      - name: Resumo dos testes
+        if: ${{ !cancelled() }}
+        run: |
+          {
+            echo "| Tipo | Executados | Falhas | Erros | Pulados |"
+            echo "| --- | --- | --- | --- | --- |"
+            for tipo in surefire failsafe; do
+              cat ./*/target/$tipo-reports/TEST-*.xml 2>/dev/null \
+                | grep -o '<testsuite [^>]*>' \
+                | awk -v tipo="$tipo" '
+                    { for (i = 1; i <= NF; i++) { split($i, kv, "=\""); sub(/".*/, "", kv[2]); v[kv[1]] += kv[2] } }
+                    END { nome = (tipo == "surefire") ? "Unitários" : "Integração";
+                          printf "| %s | %d | %d | %d | %d |\n", nome, v["tests"], v["failures"], v["errors"], v["skipped"] }'
+            done
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      # Relatórios do JUnit anexados à execução, também quando algum teste falha.
+      - name: Relatórios de teste
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: relatorios-de-teste
+          path: |
+            **/target/surefire-reports/
+            **/target/failsafe-reports/
+          retention-days: 14
+          if-no-files-found: ignore
