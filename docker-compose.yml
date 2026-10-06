@@ -262,7 +262,8 @@ services:
     deploy:
       resources:
         limits:
-          memory: 256m
+          # O Grafana 13 (armazenamento unificado e índice de busca) passa de 256 MB só na subida.
+          memory: 768m
     networks:
       - conciliacao-net
 
