@@ -31,8 +31,24 @@ O projeto reproduz um cenário real do mercado de meios de pagamento: todo dia a
 
 ---
 
+## 🎬 Demonstração
+
+[![Assista à demonstração no YouTube](https://img.youtube.com/vi/o5tm27T6O3w/maxresdefault.jpg)](https://youtu.be/o5tm27T6O3w)
+
+O vídeo mostra o ambiente local rodando de ponta a ponta, sem cortes na lógica:
+
+1. **Upload do arquivo da adquirente** no S3: a Lambda publica o evento no Kafka e o job concilia cada transação.
+2. **Resultados no Kafka**: conciliada, divergente, não encontrada e ausente no arquivo, sem número de cartão.
+3. **Idempotência**: o mesmo arquivo enviado de novo é ignorado.
+4. **Trace no Grafana Tempo**: um trace por arquivo, do consumer Kafka até cada chunk do job.
+5. **1 milhão de linhas** com as métricas reagindo ao vivo no dashboard do Grafana (trecho acelerado).
+6. **Conferência com o gabarito**: o resultado bate número a número com o esperado.
+
+---
+
 ## 📌 Índice
 
+- [Demonstração](#-demonstração)
 - [Contexto de negócio](#-contexto-de-negócio)
 - [Arquitetura](#-arquitetura)
 - [Stack](#-stack)
