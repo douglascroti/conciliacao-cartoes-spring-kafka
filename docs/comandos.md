@@ -223,6 +223,7 @@ pulados. Relatórios em `<módulo>\target\failsafe-reports`; o log do serviço n
 .\scripts\limpar-ambiente.ps1                                  # mostra o que seria feito, sem fazer
 .\scripts\limpar-ambiente.ps1 -Executar                        # limpa tudo (~30 s)
 .\scripts\limpar-ambiente.ps1 -Executar -ManterAutorizacoes -ManterMassa
+.\scripts\limpar-ambiente.ps1 -Executar -ZerarObservabilidade  # também apaga traces e métricas (~100 s)
 ```
 
 Só para desenvolvimento. Para o serviço, esvazia as tabelas do Postgres (resultados, linhas
@@ -230,6 +231,11 @@ inválidas, arquivos, autorizações e metadados do Spring Batch; o histórico d
 migrations não rodam de novo), recria a tabela do DynamoDB, esvazia o bucket, apaga os logs da
 Lambda, apaga e recria os tópicos e o consumer group do Kafka, apaga `conciliacao-batch\logs` e
 `massa\`, e sobe o serviço de novo. Containers, volumes e imagens não são recriados.
+
+Sem opção extra, traces (Tempo, 48 h) e métricas (Prometheus, 7 dias) de testes anteriores continuam
+no Grafana. Com `-ZerarObservabilidade`, o Tempo e o Prometheus são recriados com os volumes vazios,
+com o serviço parado. Depois disso, o primeiro upload pode levar ~40 s: o cold start da Lambda, com a
+máquina ainda ocupada, às vezes passa do limite de inicialização do LocalStack, e ele tenta de novo.
 
 O Kafka apaga os tópicos em duas fases: o disco só é liberado ~1 min depois (`file.delete.delay.ms`).
 

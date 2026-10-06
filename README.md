@@ -318,7 +318,7 @@ Spring Batch (`batch_job_execution`, `batch_step_execution`).
 | `conferir-gabarito.ps1` | Compara o resultado do job com o gabarito do gerador; sai com código 1 se algo não bater |
 | `medir-desempenho.ps1` | Processa o arquivo com um tamanho de chunk e mede duração, memória e CPU |
 | `liberar-reenvio.ps1` | Só para testes: permite reprocessar um arquivo já recebido |
-| `limpar-ambiente.ps1` | Só para desenvolvimento: zera banco, DynamoDB, bucket e tópicos (`-Executar`; sem ele, só mostra o que faria) |
+| `limpar-ambiente.ps1` | Só para desenvolvimento: zera banco, DynamoDB, bucket e tópicos (`-Executar`; sem ele, só mostra o que faria). Com `-ZerarObservabilidade`, também traces e métricas |
 
 ---
 

@@ -4,14 +4,18 @@
 #   .\scripts\limpar-ambiente.ps1                      # so mostra o que seria feito
 #   .\scripts\limpar-ambiente.ps1 -Executar            # limpa tudo
 #   .\scripts\limpar-ambiente.ps1 -Executar -ManterAutorizacoes -ManterMassa
+#   .\scripts\limpar-ambiente.ps1 -Executar -ZerarObservabilidade   # tambem apaga traces e metricas
 #
 # O que limpa: tabelas do Postgres (resultados, linhas invalidas, arquivos, autorizacoes e
 # metadados do Spring Batch; o historico do Flyway fica), tabela do DynamoDB, bucket do S3, topicos
 # e consumer group do Kafka, logs da Lambda, log do servico no host e a pasta massa/.
+# Com -ZerarObservabilidade: recria o Tempo e o Prometheus com os volumes vazios (sem a opcao, os
+# traces ficam 48 h e as metricas 7 dias, e testes antigos aparecem no Grafana).
 param(
     [switch]$Executar,
     [switch]$ManterAutorizacoes,   # mantem transacao_autorizada (evita recarregar a massa)
-    [switch]$ManterMassa           # mantem a pasta massa/ (arquivos gerados pelo gerador-dados)
+    [switch]$ManterMassa,          # mantem a pasta massa/ (arquivos gerados pelo gerador-dados)
+    [switch]$ZerarObservabilidade  # apaga traces (Tempo) e metricas (Prometheus)
 )
 # Continue, e nao Stop: no Windows PowerShell 5.1 o stderr de programas nativos redirecionado vira
 # erro fatal com Stop (docker compose escreve o progresso no stderr). Os codigos de saida sao checados.
@@ -32,7 +36,8 @@ Write-Host '  4. S3: esvazia o bucket conciliacao (entrada/ e rejeitados/)'
 Write-Host '  5. Lambda: apaga os logs no CloudWatch do LocalStack e roda o terraform apply (recria tabela e log group)'
 Write-Host "  6. Kafka: apaga e recria os topicos ($($topicos -join ', ')) e o consumer group conciliacao-batch"
 Write-Host ('  7. Apaga conciliacao-batch\logs' + $(if ($ManterMassa) { '' } else { ' e a pasta massa\' }))
-Write-Host '  8. Sobe o conciliacao-batch de novo'
+if ($ZerarObservabilidade) { Write-Host '  8. Tempo e Prometheus: recriados com os volumes vazios (traces e metricas apagados)' }
+Write-Host $(if ($ZerarObservabilidade) { '  9.' } else { '  8.' }) 'Sobe o conciliacao-batch de novo'
 if (-not $Executar) {
     Write-Host "`nNada foi feito. Para executar: .\scripts\limpar-ambiente.ps1 -Executar" -ForegroundColor Yellow
     return
@@ -93,6 +98,22 @@ Passo 'Apagando logs locais e massa gerada' {
     Remove-Item -Recurse -Force "$raiz\conciliacao-batch\logs" -ErrorAction SilentlyContinue
     if (-not $ManterMassa) { Remove-Item -Recurse -Force "$raiz\massa" -ErrorAction SilentlyContinue }
     $global:LASTEXITCODE = 0
+}
+
+if ($ZerarObservabilidade) {
+    # Feito com o conciliacao-batch parado: nenhum span ou metrica nova chega no meio da troca.
+    # O nome do volume vem do proprio container (o prefixo depende do nome do projeto no compose).
+    $volumes = foreach ($par in @(@('tempo', '/var/tempo'), @('prometheus', '/prometheus'))) {
+        $container = docker inspect $par[0] 2>$null | ConvertFrom-Json
+        if ($container) { ($container.Mounts | Where-Object { $_.Destination -eq $par[1] }).Name }
+    }
+    Passo 'Removendo o Tempo e o Prometheus' { docker compose -f "$raiz\docker-compose.yml" rm -sf tempo prometheus 2>&1 | Out-Null }
+    Passo "Apagando os volumes ($(($volumes | Where-Object { $_ }) -join ', '))" {
+        $volumes | Where-Object { $_ } | ForEach-Object { docker volume rm $_ | Out-Null }
+    }
+    Passo 'Subindo o Tempo e o Prometheus vazios' {
+        docker compose -f "$raiz\docker-compose.yml" up -d --wait tempo prometheus 2>&1 | Out-Null
+    }
 }
 
 Passo 'Subindo o conciliacao-batch' { docker compose -f "$raiz\docker-compose.yml" up -d --wait conciliacao-batch 2>&1 | Out-Null }
