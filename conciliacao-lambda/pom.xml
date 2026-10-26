@@ -16,7 +16,7 @@
 
     <properties>
         <start-class>br.estudo.conciliacao.lambda.LambdaApplication</start-class>
-        <aws-lambda-java-core.version>1.4.0</aws-lambda-java-core.version>
+        <aws-lambda-java-core.version>1.4.1</aws-lambda-java-core.version>
         <aws-lambda-java-events.version>3.16.1</aws-lambda-java-events.version>
     </properties>
 
