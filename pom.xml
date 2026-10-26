@@ -36,7 +36,7 @@
         <spring-cloud.version>2025.1.3</spring-cloud.version>
         <!-- Mesma versão do <parent>; usada por plugins que precisam do spring-boot-maven-plugin. -->
         <spring-boot.version>4.0.8</spring-boot.version>
-        <aws-sdk.version>2.55.10</aws-sdk.version>
+        <aws-sdk.version>2.57.3</aws-sdk.version>
         <!--
             Correções de segurança apontadas pelo Trivy (fase 8), antes de existir um Spring Boot 4.0.x
             que as traga. Só patches da mesma linha que o Boot gerencia; remover quando o Boot alcançar.
